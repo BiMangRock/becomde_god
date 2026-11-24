@@ -22,9 +22,11 @@
   };
 
   class Sim {
-    constructor(seed) {
-      const { W, H } = G.CFG;
+    constructor(seed, opts = {}) {
+      const W = opts.W || G.CFG.W, H = opts.H || G.CFG.H;
+      this.opts = { pop: 8, animals: 1, ...opts };
       this.world = new G.World(W, H, seed ?? Math.floor(Math.random() * 1e9));
+      G.Fire.init(this);
       this.humans = [];
       this.byId = new Map();     // 살아있는 사람만
       this.tribes = [];
@@ -46,7 +48,7 @@
       this.animals = [];
       this.unsolved = [];        // 범인을 모르는 살인 사건
       this.spawnInitial();
-      G.Wild.init(this);
+      G.Wild.init(this, this.opts.animals);
     }
 
     // ---------------- 시작 ----------------
@@ -59,12 +61,13 @@
       }
       if (!spot) spot = w.nearestWalkable(w.w / 2, w.h / 2, 60) || { x: w.w / 2, y: w.h / 2 };
       this.start = spot;
-      for (let i = 0; i < 8; i++) {
+      const n0 = this.opts.pop;
+      for (let i = 0; i < n0; i++) {
         const p = w.nearestWalkable(spot.x + rand(-3, 3), spot.y + rand(-3, 3), 5) || spot;
         const h = this.spawnHuman(p.x, p.y, { gender: i % 2 ? 'F' : 'M' });
         h.log(this, '이 섬에서 눈을 떴다');
       }
-      this.event('신이 깨어났습니다. 섬에 8명의 인간이 살고 있습니다', '#f5d76e', spot.x, spot.y);
+      this.event(`신이 깨어났습니다. 섬에 ${n0}명의 인간이 살고 있습니다`, '#f5d76e', spot.x, spot.y);
     }
 
     spawnHuman(x, y, o) {
@@ -82,7 +85,8 @@
       const hs = this.humans;
       for (let i = 0; i < hs.length; i++) if (hs[i].alive) hs[i].update(this);
       G.Wild.tick(this);
-      if (this.tick % 10 === 0) this.world.regrow(this.drought ? 0.3 : 1);
+      if (this.tick % 10 === 0) { this.world.regrow(this.drought ? 0.3 : 1); G.Fire.tick(this); }
+      if (this.tick % 60 === 30) G.Fire.regrow(this);
       if (this.tick % 60 === 0) { this.social(); this.computeFaith(); }
       if (this.tick % G.CFG.TPY === 0) this.yearly();
       if (this.tick % 30 === 0) this.humans = this.humans.filter((h) => h.alive);
@@ -138,6 +142,7 @@
       let s = 0;
       for (const h of this.humans) if (h.alive) s += h.faith * (h.job === J.PRIEST ? 2 : 1);
       for (const t of this.tribes) if (t.alive && t.temple) s += t.members.length * 15;
+      for (const t of this.tribes) if (t.alive && t.has('천문학')) s += t.members.length * 8;
       this.faithRate = s * 0.00008;
     }
 
@@ -414,6 +419,7 @@
           const b = this.spawnHuman(p.x + 0.2, p.y, { gender: 'F', faith: 80, age: rand(17, 22) });
           for (const h of [a, b]) { h.log(this, '신의 손에서 빚어져 태어났다'); h.miracles++; }
           this.effects.push({ kind: 'bless', x: p.x, y: p.y, r: 2, age: 0, ttl: 60 });
+          this.effects.push({ kind: 'beam', x: p.x, y: p.y, age: 0, ttl: 70 });
           this.event(`신이 ${josa(a.name, '과/와')} ${josa(b.name, '을/를')} 빚어냈습니다`, '#f5d76e', p.x, p.y);
           break;
         }
@@ -431,6 +437,7 @@
             h.miracles++;
           });
           this.effects.push({ kind: 'rain', x, y, r, age: 0, ttl: 150 });
+          G.Fire.rain(this, x, y, r);
           break;
         }
         case 'bless': {
@@ -449,7 +456,9 @@
           witness(1.2, (h) => dead.push(h));
           for (const h of dead) this.kill(h, '번개');
           const tx = Math.floor(x), ty = Math.floor(y);
-          if (w.inb(tx, ty) && w.type[w.idx(tx, ty)] === T.FOREST) { const i = w.idx(tx, ty); w.type[i] = T.GRASS; w.wood[i] = 0; w.food[i] = 0; w.dirty = true; }
+          // 번개는 불을 일으킨다
+          if (chance(0.75)) G.Fire.ignite(this, x, y, '번개로');
+          if (w.inb(tx, ty)) { w.burnt[w.idx(tx, ty)] = 255; w.dirty = true; }
           this.destroyHouses(x, y, 1.2);
           witness(10, (h) => {
             h.faith = Math.min(100, h.faith + (h.has('의심 많은') ? 4 : 8)); G.Social.addMood(this, h, 'fear');
@@ -504,6 +513,13 @@
         h.log(this, '하늘에서 불덩이가 떨어지는 것을 보았다'); h.miracles++; h.say('!', 90);
       });
       this.effects.push({ kind: 'boom', x, y, age: 0, ttl: 50 });
+      this.effects.push({ kind: 'crater', x, y, age: 0, ttl: 900 });
+      // 운석 주위로 불이 붙는다
+      let lit = 0;
+      for (let k = 0; k < 14; k++) {
+        const a = Math.random() * Math.PI * 2, r = rand(3.5, 6.5);
+        if (G.Fire.ignite(this, x + Math.cos(a) * r, y + Math.sin(a) * r, lit ? null : '운석으로')) lit++;
+      }
       this.event(dead.length ? `운석이 떨어져 ${dead.length}명이 목숨을 잃었습니다` : '운석이 떨어져 땅에 깊은 구덩이가 생겼습니다', '#ff8a50', x, y);
     }
 

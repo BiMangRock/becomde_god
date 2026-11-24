@@ -25,12 +25,81 @@
     },
   };
 
-  function newWorld() {
-    app.sim = new G.Sim();
+  function newWorld(opts = {}) {
+    const seed = opts.seed ? hashSeed(opts.seed) : undefined;
+    app.sim = new G.Sim(seed, opts);
     if (app.renderer) { app.renderer.setSim(app.sim); app.renderer.cam = { x: app.sim.start.x, y: app.sim.start.y, s: 14 }; }
     app.selected = null; app.follow = false;
     if (app.renderer) app.renderer.selected = null;
     if (app.ui) { app.ui.view = 'overview'; app.ui.lastLogKey = ''; app.ui.render(true); }
+  }
+
+  function hashSeed(str) {
+    if (/^\d+$/.test(str)) return +str;
+    let h = 2166136261;
+    for (const c of str) h = Math.imul(h ^ c.charCodeAt(0), 16777619);
+    return h >>> 0;
+  }
+
+  // ---------- 시작 설정 ----------
+  const SIZES = { small: [120, 90], normal: [160, 120], large: [240, 180], huge: [320, 240] };
+  function openSetup(first) {
+    const el = $('setup');
+    el.hidden = false;
+    $('setup-cancel').hidden = !!first;
+    app.paused = true;
+  }
+  function bindSetup() {
+    const el = $('setup');
+    el.addEventListener('click', (e) => {
+      const b = e.target.closest('[data-opt]');
+      if (!b) return;
+      for (const x of el.querySelectorAll(`[data-opt="${b.dataset.opt}"]`)) x.classList.toggle('on', x === b);
+    });
+    const val = (opt) => el.querySelector(`[data-opt="${opt}"].on`).dataset.v;
+    $('setup-go').addEventListener('click', () => {
+      const [W, H] = SIZES[val('size')];
+      newWorld({ W, H, pop: +val('pop'), animals: +val('animals'), seed: $('setup-seed').value.trim() || undefined });
+      el.hidden = true; app.paused = false;
+      app.toast(`${W}×${H} 크기의 새 세상이 열렸습니다`);
+    });
+    $('setup-cancel').addEventListener('click', () => { el.hidden = true; app.paused = false; });
+  }
+
+  // ---------- 미니맵 ----------
+  function drawMinimap() {
+    const mm = $('minimap'), sim = app.sim, R = app.renderer;
+    const ctx = mm.getContext('2d');
+    const W = sim.world.w, H = sim.world.h;
+    const mw = mm.width, mh = Math.round(mw * H / W);
+    if (mm.height !== mh) mm.height = mh;
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(R.terrain, 0, 0, mw, mh);
+    const k = mw / W;
+    for (const i of sim.fires) { ctx.fillStyle = '#ff6a1a'; ctx.fillRect((i % W) * k, ((i / W) | 0) * k, Math.max(1.5, k), Math.max(1.5, k)); }
+    for (const t of sim.tribes) {
+      if (!t.alive) continue;
+      ctx.fillStyle = t.color; ctx.beginPath(); ctx.arc(t.cx * k, t.cy * k, 2.5 + Math.sqrt(t.members.length) * 0.5, 0, 7); ctx.fill();
+      ctx.strokeStyle = '#000'; ctx.lineWidth = 0.8; ctx.stroke();
+    }
+    for (const a of sim.animals) if (a.alive && G.Wild.isBeast(a)) { ctx.fillStyle = '#ff4040'; ctx.fillRect(a.x * k - 1, a.y * k - 1, 2, 2); }
+    const [x0, y0] = R.toWorld(0, 0), [x1, y1] = R.toWorld(R.vw, R.vh);
+    ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.2;
+    ctx.strokeRect(x0 * k, y0 * k, (x1 - x0) * k, (y1 - y0) * k);
+  }
+  function bindMinimap() {
+    const mm = $('minimap');
+    let down = false;
+    const go = (e) => {
+      const r = mm.getBoundingClientRect();
+      const W = app.sim.world.w, H = app.sim.world.h;
+      app.renderer.cam.x = (e.clientX - r.left) / r.width * W;
+      app.renderer.cam.y = (e.clientY - r.top) / r.height * H;
+      app.follow = false;
+    };
+    mm.addEventListener('pointerdown', (e) => { down = true; mm.setPointerCapture(e.pointerId); go(e); });
+    mm.addEventListener('pointermove', (e) => { if (down) go(e); });
+    mm.addEventListener('pointerup', () => { down = false; });
   }
 
   // ---------- 도구 ----------
@@ -189,9 +258,7 @@
       const b = e.target.closest('[data-z]');
       if (b) R.zoomAt(R.vw / 2, R.vh / 2, +b.dataset.z);
     });
-    $('btn-new').addEventListener('click', () => {
-      if (confirm('지금 세상을 지우고 새 세상을 만들까요?')) newWorld();
-    });
+    $('btn-new').addEventListener('click', () => openSetup(false));
     $('log-wrap').querySelector('h3').addEventListener('click', () => $('side').classList.toggle('collapsed'));
     window.addEventListener('resize', () => R.resize());
   }
@@ -208,7 +275,7 @@
     const dt = Math.min(0.1, (now - last) / 1000);
     last = now;
     const R = app.renderer;
-    if (app.speed) {
+    if (app.speed && !app.paused) {
       acc += dt * 60 * app.speed;
       let n = 0;
       while (acc >= 1 && n < 40) { app.sim.step(); acc -= 1; n++; }
@@ -228,6 +295,7 @@
       R.cam.x += (h.x - R.cam.x) * 0.12; R.cam.y += (h.y - R.cam.y) * 0.12;
     }
     R.draw();
+    if (frame % 6 === 0) drawMinimap();
     frame++;
     if (frame % 15 === 0) {
       const sim = app.sim;
@@ -252,6 +320,9 @@
   buildTools();
   bindInput();
   app.ui.render(true);
+  bindSetup();
+  bindMinimap();
+  openSetup(true);
   window.app = app; // 디버깅용
   requestAnimationFrame(loop);
 })();

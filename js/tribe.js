@@ -58,7 +58,23 @@
 
     adults() { return this.members.filter((m) => m.adult); }
     get title() { return this.bandit ? '두목' : '족장'; }
-    toolBonus() { return Math.min(0.3, this.tools / Math.max(1, this.members.length) * 0.25); }
+    toolBonus() { return Math.min(this.has('청동') ? 0.45 : 0.3, this.tools / Math.max(1, this.members.length) * 0.25); }
+    has(d) { return !!(this.found && this.found.includes(d)); }
+    // 가축 우리
+    ensurePen(sim) {
+      if (this.pen) return this.pen;
+      for (let k = 0; k < 40; k++) {
+        const a = Math.random() * Math.PI * 2, r = rand(5, 7.5);
+        const x = this.cx + Math.cos(a) * r, y = this.cy + Math.sin(a) * r;
+        if (sim.world.typeAt(x, y) !== G.T.GRASS) continue;
+        if (this.houses.some((hs) => Math.hypot(hs.x - x, hs.y - y) < 2.5)) continue;
+        this.pen = { x, y };
+        this.log(sim, `${josa(this.name, '이/가')} 가축 우리를 지었습니다`, false);
+        return this.pen;
+      }
+      this.pen = { x: this.cx + 4, y: this.cy };
+      return this.pen;
+    }
     prisoners(sim) { return sim.humans.filter((h) => h.alive && h.jail && h.jail.tid === this.id); }
 
     // 수요(인구)와 공급(창고)으로 가격이 정해진다
@@ -71,7 +87,7 @@
 
     deposit(sim, h) {
       const r = h.carry, amt = h.carryAmt;
-      if (!r || amt <= 0) return;
+      if (!r || amt <= 0 || !(r in this.stock)) { h.carry = null; h.carryAmt = 0; return; }
       const pay = Math.min(Math.floor(this.price(r) * amt * 0.6), Math.floor(this.treasury));
       this.stock[r] += amt; this.treasury -= pay; h.gold += pay;
       h.carry = null; h.carryAmt = 0;
@@ -136,9 +152,12 @@
         [J.HEALER]: n >= 8 ? 0.05 : 0,
         [J.GUARD]: n >= 10 || (this.crimeHeat || 0) > 2 ? 0.05 + Math.min(0.1, (this.crimeHeat || 0) * 0.015) : 0,
         [J.WARRIOR]: this.wars.size ? 0.3 : n >= 8 ? 0.05 : 0,
+        [J.HERDER]: this.hasTameable || this.herd > 0 ? (n >= 5 ? 0.07 : 0.04) : 0,
+        [J.WATCH]: this.hasBeasts || this.herd > 3 || (this.beastHeat || 0) > 0.5 ? 0.05 + Math.min(0.1, (this.beastHeat || 0) * 0.03) : 0,
       };
-      const prefer = h.has('탐욕스러운') ? J.MERCHANT : h.has('신앙심 깊은') ? J.PRIEST : h.has('다정한') ? J.HEALER
-        : (h.has('정직한') && h.has('용감한')) ? J.GUARD : h.has('용감한') ? (chance(0.5) ? J.WARRIOR : J.HUNTER)
+      const prefer = h.has('탐욕스러운') ? J.MERCHANT : h.has('신앙심 깊은') ? J.PRIEST : h.has('다정한') ? (chance(0.5) ? J.HEALER : J.HERDER)
+        : (h.has('정직한') && h.has('용감한')) ? J.GUARD : h.has('용감한') || h.teto > 50 ? pick([J.WARRIOR, J.HUNTER, J.WATCH])
+        : h.teto < -50 ? pick([J.HEALER, J.HERDER, J.MERCHANT, J.PRIEST])
         : h.has('부지런한') ? J.FARMER : null;
       let job = null;
       if (prefer && want[prefer] * n - (cnt[prefer] || 0) > 0) job = prefer;
@@ -161,7 +180,8 @@
     electChief(sim) {
       const cands = this.adults().filter((m) => m.age < 70 && !m.jail && !m.wanted && (m.notoriety || 0) < 15);
       if (!cands.length) { this.chief = null; return; }
-      const score = (m) => m.age * 0.5 + m.gold / 10 + m.kills * 3 + (m.has('야심찬') ? 10 : 0) + (m.has('용감한') ? 4 : 0);
+      const score = (m) => m.age * 0.5 + m.gold / 10 + m.kills * 3 + (m.has('야심찬') ? 10 : 0) + (m.has('용감한') ? 4 : 0)
+        + m.teto / 10 + m.p.extra / 15 + m.knowledge / 10 + G.Persona.charm(m) / 10;
       cands.sort((a, b) => score(b) - score(a));
       const c = cands[0];
       this.chief = c;
@@ -196,7 +216,7 @@
         const ty = w.typeAt(x, y);
         if (ty !== G.T.GRASS && ty !== G.T.FOREST) continue;
         if (sim.tribes.some((o) => o !== this && o.alive && G.dist(o.cx, o.cy, x, y) < 15)) continue;
-        if (!w.findPath(this.cx, this.cy, x, y, 8000)) continue;
+        if (!w.findPath(this.cx, this.cy, x, y, w.maxNodes)) continue;
         const score = w.foodAround(x, y, 7) - r * 0.5;
         if (score > bestScore) { bestScore = score; best = { x, y }; }
       }
@@ -224,7 +244,13 @@
       }
 
       // 식량은 해마다 조금씩 상한다
-      this.stock.food = Math.floor(this.stock.food * 0.85);
+      this.stock.food = Math.floor(this.stock.food * (this.has('토기') ? 0.92 : 0.85));
+      if (this.has('관개')) {
+        const w = sim.world;
+        for (let y = Math.floor(this.cy - 8); y <= this.cy + 8; y++) for (let x = Math.floor(this.cx - 8); x <= this.cx + 8; x++) {
+          if (w.inb(x, y) && w.farm[w.idx(x, y)]) w.fert[w.idx(x, y)] = Math.max(w.fert[w.idx(x, y)], 2.2);
+        }
+      }
 
       // 도구는 닳는다
       this.tools = Math.floor(this.tools * 0.9);
@@ -243,7 +269,11 @@
       this.crimeHeat = Math.max(0, (this.crimeHeat || 0) * 0.6);
       this.farmCount = sim.world.countFarms(this.cx, this.cy, 8);
       this.hasWater = !!sim.world.findShore(this.cx, this.cy, 18);
-      this.hasPrey = sim.animals.some((a) => a.alive && G.dist(a.x, a.y, this.cx, this.cy) < 26);
+      this.hasPrey = sim.animals.some((a) => a.alive && !a.tame && G.dist(a.x, a.y, this.cx, this.cy) < 26);
+      this.hasBeasts = !!G.Wild.near(sim, this.cx, this.cy, 32, G.Wild.isBeast);
+      this.hasTameable = !!G.Wild.near(sim, this.cx, this.cy, 22, (a) => !a.tame && G.Wild.TAMEABLE.includes(a.kind) && a.kind !== 'wolf');
+      this.herd = G.Wild.livestock(sim, this).length;
+      this.beastHeat = (this.beastHeat || 0) * 0.5;
       // 도적단은 가장 가까운 마을을 노린다
       if (this.bandit && !this.wars.size && this.members.length >= 3) {
         const target = sim.tribes.filter((o) => o.alive && !o.bandit && o.members.length).sort((a, b) => G.dist(a.cx, a.cy, this.cx, this.cy) - G.dist(b.cx, b.cy, this.cx, this.cy))[0];

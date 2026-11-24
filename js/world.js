@@ -31,6 +31,7 @@
       this.fish = new Float32Array(n);   // 물고기 (물 칸)
       this.farm = new Uint8Array(n);     // 밭 (초원 칸)
       this.dirty = true;
+      this.maxNodes = Math.max(6000, Math.round(w * h / 3));
       this.generate(seed);
     }
 
@@ -180,7 +181,7 @@
     }
 
     // A* 길찾기. 경유점 배열을 돌려주고, 길이 없으면 null
-    findPath(sx, sy, tx, ty, maxNodes = 6000) {
+    findPath(sx, sy, tx, ty, maxNodes = this.maxNodes) {
       if (this.lineClear(sx, sy, tx, ty)) return [{ x: tx, y: ty }];
       const W = this.w, H = this.h, n = W * H;
       if (!this._g) {
@@ -286,6 +287,22 @@
       return best;
     }
 
+    // 물을 뜰 수 있는 물가 (물고기와 상관없이)
+    findWater(x, y, r) {
+      let best = null, bd = 1e9;
+      for (let k = 0; k < 80; k++) {
+        const rr = r * Math.sqrt(Math.random()), a = Math.random() * Math.PI * 2;
+        const tx = Math.floor(x + Math.cos(a) * rr), ty = Math.floor(y + Math.sin(a) * rr);
+        if (!this.walkableTile(tx, ty)) continue;
+        for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+          if (!this.inb(tx + dx, ty + dy) || this.type[this.idx(tx + dx, ty + dy)] > T.WATER) continue;
+          const d = Math.hypot(tx - x, ty - y);
+          if (d < bd) { bd = d; best = { x: tx, y: ty }; }
+        }
+      }
+      return best;
+    }
+
     // 마을 근처 밭 (수확할 수 있는 것)
     findFarm(cx, cy, r) {
       let best = null, bs = -1e9;
@@ -380,6 +397,7 @@
         let sh;
         if (t <= T.WATER) sh = clamp(0.7 + this.height[i] * 0.9, 0.6, 1.1);
         else sh = clamp(0.92 + (this.height[i] - 0.5) * 0.45, 0.78, 1.12);
+        if (this.burnt && this.burnt[i]) sh *= 1 - this.burnt[i] / 380;
         const o = i * 4;
         data[o] = r * sh; data[o + 1] = g * sh; data[o + 2] = b * sh; data[o + 3] = 255;
       }

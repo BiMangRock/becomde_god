@@ -4,6 +4,7 @@
   const T = G.T;
   const J = G.JOB;
 
+  const W_BEAST = (a) => G.Wild.isBeast(a);
   const EMOTE_COLORS = { '♥': '#ff6b9a', '!': '#ff5050', '#': '#ff7b3d', '♪': '#ffe27a', '…': '#9fc3ff', '✦': '#ffe27a', '✚': '#7fe0a8', '➶': '#e0b070', '?': '#c9a0ff', '⚒': '#c8c8c8', '~': '#8fd0ff' };
 
   class Renderer {
@@ -15,6 +16,8 @@
       this.selected = null; // {type:'human'|'tribe'|'tile', ...}
       this.hover = null;
       this.frame = 0;
+      this.fx = new G.FX(this);
+      this.ox = 0; this.oy = 0;
     }
 
     setSim(sim) {
@@ -37,8 +40,8 @@
 
     get vw() { return this.cv.width / this.dpr; }
     get vh() { return this.cv.height / this.dpr; }
-    toScreen(x, y) { const c = this.cam; return [(x - c.x) * c.s + this.vw / 2, (y - c.y) * c.s + this.vh / 2]; }
-    toWorld(sx, sy) { const c = this.cam; return [(sx - this.vw / 2) / c.s + c.x, (sy - this.vh / 2) / c.s + c.y]; }
+    toScreen(x, y) { const c = this.cam; return [(x - c.x) * c.s + this.vw / 2 + this.ox, (y - c.y) * c.s + this.vh / 2 + this.oy]; }
+    toWorld(sx, sy) { const c = this.cam; return [(sx - this.vw / 2 - this.ox) / c.s + c.x, (sy - this.vh / 2 - this.oy) / c.s + c.y]; }
 
     zoomAt(sx, sy, factor) {
       const [wx, wy] = this.toWorld(sx, sy);
@@ -55,6 +58,7 @@
     draw() {
       const ctx = this.ctx, sim = this.sim, w = sim.world, s = this.cam.s;
       this.frame++;
+      [this.ox, this.oy] = this.fx.offset();
       ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
       ctx.fillStyle = '#10243f';
       ctx.fillRect(0, 0, this.vw, this.vh);
@@ -78,11 +82,18 @@
       if (s >= 12) this.drawDetails(x0, y0, x1, y1);
       if (sim.drought) { ctx.fillStyle = 'rgba(220,150,60,0.10)'; ctx.fillRect(0, 0, this.vw, this.vh); }
 
+      this.drawFires();
+      for (const t of this.sim.tribes) if (t.alive) this.drawPen(t);
       this.drawTribes();
       this.drawAnimals();
       this.drawHumans();
       this.drawEffects();
+      this.fx.process(this.sim);
+      this.fx.emit(this.sim);
+      this.fx.update();
+      this.fx.draw(ctx);
       this.drawTribeLabels();
+      this.fx.drawFlash(ctx);
       this.drawBrush();
     }
 
@@ -259,7 +270,7 @@
       // 그림자
       ctx.fillStyle = 'rgba(0,0,0,0.25)';
       ctx.beginPath(); ctx.ellipse(x, y, 4 * u, 1.5 * u, 0, 0, Math.PI * 2); ctx.fill();
-      const dancing = h.state === 'party';
+      const dancing = h.state === 'party' || (h.state === 'hobby' && h.emote === '♫');
       if (dancing) y -= Math.abs(Math.sin(this.frame * 0.22 + h.id)) * 3 * u; // 축제 춤
       // 다리
       ctx.strokeStyle = '#4a3526'; ctx.lineWidth = Math.max(1, 1.4 * u); ctx.lineCap = 'round';
@@ -347,7 +358,8 @@
       }
       if (h.carry && h.carryAmt > 0) {
         const cx = x - d * 3.8 * u, cy = bodyTop + 4 * u;
-        if (h.carry === 'food') { ctx.fillStyle = '#d33'; ctx.beginPath(); ctx.arc(cx, cy, 1.6 * u, 0, 7); ctx.fill(); ctx.fillStyle = '#4a4'; ctx.fillRect(cx - 0.3 * u, cy - 2.4 * u, 0.6 * u, 1 * u); }
+        if (h.carry === 'water') { ctx.fillStyle = '#8a6a40'; ctx.fillRect(cx - 1.4 * u, cy - 1 * u, 2.8 * u, 2.6 * u); ctx.fillStyle = '#5fb0ff'; ctx.fillRect(cx - 1.1 * u, cy - 0.8 * u, 2.2 * u, 0.8 * u); }
+        else if (h.carry === 'food') { ctx.fillStyle = '#d33'; ctx.beginPath(); ctx.arc(cx, cy, 1.6 * u, 0, 7); ctx.fill(); ctx.fillStyle = '#4a4'; ctx.fillRect(cx - 0.3 * u, cy - 2.4 * u, 0.6 * u, 1 * u); }
         else if (h.carry === 'wood') { ctx.fillStyle = '#7a4f28'; ctx.fillRect(cx - 1 * u, cy - 4 * u, 2 * u, 7 * u); }
         else if (h.carry === 'ore') { ctx.fillStyle = '#9aa'; ctx.beginPath(); ctx.moveTo(cx, cy - 2 * u); ctx.lineTo(cx + 1.8 * u, cy); ctx.lineTo(cx, cy + 1.8 * u); ctx.lineTo(cx - 1.8 * u, cy); ctx.fill(); ctx.fillStyle = '#ffd34d'; ctx.fillRect(cx - 0.4 * u, cy - 0.4 * u, 0.8 * u, 0.8 * u); }
       }
@@ -464,24 +476,63 @@
             break;
           }
           case 'bolt': {
-            if (e.age < 4) { ctx.fillStyle = 'rgba(255,255,230,0.35)'; ctx.fillRect(0, 0, this.vw, this.vh); }
-            ctx.strokeStyle = `rgba(255,255,200,${1 - p})`; ctx.lineWidth = 3;
-            ctx.beginPath(); ctx.moveTo(x, y);
-            let bx = x, by = y, k = 0;
-            while (by > -10 && k++ < 40) { by -= 25; bx += Math.sin(e.seed * 99 + k * 7.3) * 18; ctx.lineTo(bx, by); }
-            ctx.stroke();
-            ctx.fillStyle = `rgba(255,240,150,${0.6 * (1 - p)})`;
-            ctx.beginPath(); ctx.arc(x, y, s * 1.2, 0, Math.PI * 2); ctx.fill();
+            // 번개: 줄기와 가지, 바깥 빛과 하얀 심
+            if (!e.path) {
+              let rs = e.seed * 9973;
+              const rnd = () => { rs = (rs * 16807) % 2147483647; return (rs % 10000) / 10000; };
+              const main = [[0, 0]]; let bx = 0, by = 0;
+              while (by > -900) { by -= 18 + rnd() * 20; bx += (rnd() - 0.5) * 44; main.push([bx, by]); }
+              const branches = [];
+              for (let k = 2; k < main.length - 2; k++) {
+                if (rnd() > 0.35) continue;
+                const br = [main[k]]; let qx = main[k][0], qy = main[k][1]; const dir = rnd() < 0.5 ? -1 : 1;
+                for (let m = 0; m < 3 + rnd() * 4; m++) { qx += dir * (10 + rnd() * 22); qy += 12 + rnd() * 18; br.push([qx, qy]); }
+                branches.push(br);
+              }
+              e.path = { main, branches };
+            }
+            const flick = e.age < 12 && e.age % 4 < 2 ? 1 : 0.55;
+            const alpha = (1 - p) * flick;
+            const strokePath = (pts, wdt, col) => {
+              ctx.strokeStyle = col; ctx.lineWidth = wdt; ctx.lineJoin = 'round';
+              ctx.beginPath(); ctx.moveTo(x + pts[0][0], y + pts[0][1]);
+              for (const [px, py] of pts) ctx.lineTo(x + px, y + py);
+              ctx.stroke();
+            };
+            strokePath(e.path.main, 12, `rgba(140,170,255,${0.25 * alpha})`);
+            for (const b of e.path.branches) strokePath(b, 6, `rgba(140,170,255,${0.2 * alpha})`);
+            strokePath(e.path.main, 3.5, `rgba(255,255,240,${alpha})`);
+            for (const b of e.path.branches) strokePath(b, 1.6, `rgba(230,235,255,${alpha * 0.9})`);
+            ctx.fillStyle = `rgba(255,240,170,${0.6 * (1 - p)})`;
+            ctx.beginPath(); ctx.arc(x, y, s * 1.4, 0, Math.PI * 2); ctx.fill();
+            ctx.fillStyle = `rgba(40,30,20,${0.5 * (1 - p * 0.5)})`;
+            ctx.beginPath(); ctx.ellipse(x, y, s * 0.9, s * 0.6, 0, 0, Math.PI * 2); ctx.fill();
             break;
           }
           case 'meteor': {
-            const fx = x + (1 - p) * 500, fy = y - (1 - p) * 700;
-            ctx.strokeStyle = 'rgba(255,160,60,0.6)'; ctx.lineWidth = 6;
-            ctx.beginPath(); ctx.moveTo(fx, fy); ctx.lineTo(fx + 60, fy - 85); ctx.stroke();
-            ctx.fillStyle = '#ffcf6b';
-            ctx.beginPath(); ctx.arc(fx, fy, Math.max(6, s * 0.8), 0, Math.PI * 2); ctx.fill();
-            ctx.strokeStyle = 'rgba(255,80,40,0.7)'; ctx.lineWidth = 1;
-            ctx.beginPath(); ctx.arc(x, y, 4 * s, 0, Math.PI * 2); ctx.stroke();
+            // 떨어지는 불덩이와 땅에 커지는 그림자
+            const [fx, fy] = this.toScreen(e.x + (1 - p) * 30, e.y - (1 - p) * 40);
+            ctx.fillStyle = `rgba(0,0,0,${0.15 + 0.35 * p})`;
+            ctx.beginPath(); ctx.ellipse(x, y, s * (0.5 + 3.5 * p), s * (0.3 + 2.2 * p), 0, 0, Math.PI * 2); ctx.fill();
+            ctx.strokeStyle = `rgba(255,80,40,${0.4 + 0.4 * Math.sin(this.frame * 0.5)})`; ctx.lineWidth = 1.5; ctx.setLineDash([6, 6]);
+            ctx.beginPath(); ctx.arc(x, y, 4 * s, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]);
+            const dx = 30 * s, dy = -40 * s, L = Math.hypot(dx, dy), ux = dx / L, uy = dy / L;
+            const grd = ctx.createLinearGradient(fx, fy, fx + ux * 160, fy + uy * 160);
+            grd.addColorStop(0, 'rgba(255,220,140,0.95)'); grd.addColorStop(1, 'rgba(255,90,30,0)');
+            ctx.strokeStyle = grd; ctx.lineWidth = Math.max(8, s * 0.9); ctx.lineCap = 'round';
+            ctx.beginPath(); ctx.moveTo(fx, fy); ctx.lineTo(fx + ux * 160, fy + uy * 160); ctx.stroke();
+            const rad = Math.max(7, s * 0.9);
+            ctx.fillStyle = 'rgba(255,170,80,0.35)'; ctx.beginPath(); ctx.arc(fx, fy, rad * 2.2, 0, 7); ctx.fill();
+            ctx.fillStyle = '#ffd98a'; ctx.beginPath(); ctx.arc(fx, fy, rad, 0, 7); ctx.fill();
+            ctx.fillStyle = '#fff6d8'; ctx.beginPath(); ctx.arc(fx - rad * 0.25, fy + rad * 0.2, rad * 0.45, 0, 7); ctx.fill();
+            break;
+          }
+          case 'crater': {
+            const k = 1 - p;
+            ctx.fillStyle = `rgba(30,22,18,${0.45 * k})`;
+            ctx.beginPath(); ctx.ellipse(x, y, s * 3, s * 2.2, 0, 0, 7); ctx.fill();
+            ctx.strokeStyle = `rgba(255,${100 + 60 * Math.sin(this.frame * 0.1)},40,${0.6 * k})`; ctx.lineWidth = Math.max(1, s * 0.15);
+            ctx.beginPath(); ctx.ellipse(x, y, s * 2.2, s * 1.5, 0, 0, 7); ctx.stroke();
             break;
           }
           case 'boom': {
@@ -565,36 +616,122 @@
         if (!a.alive || a.x < v.x0 - 1 || a.x > v.x1 + 1 || a.y < v.y0 - 1 || a.y > v.y1 + 1) continue;
         const [x, y] = this.toScreen(a.x, a.y);
         const K = G.Wild.KINDS[a.kind];
-        if (s < 8) { ctx.fillStyle = K.color; ctx.fillRect(x - 1.5, y - 1.5, 3, 3); continue; }
-        const u = s * 0.05 * (a.kind === 'deer' ? 1.1 : 1), d = a.dir;
+        const tribe = a.tame ? this.sim.tribeById(a.tame) : null;
+        if (s < 8) {
+          ctx.fillStyle = K.color; const q = Math.max(2, 3 * K.size); ctx.fillRect(x - q / 2, y - q / 2, q, q);
+          if (W_BEAST(a)) { ctx.strokeStyle = '#ff5050'; ctx.lineWidth = 1; ctx.strokeRect(x - q / 2 - 1, y - q / 2 - 1, q + 2, q + 2); }
+          continue;
+        }
+        const u = s * 0.05 * K.size, d = a.dir;
         const sw = a.moving ? Math.sin(a.walk * 3) * 1.6 * u : 0;
+        const legH = K.legs;
         ctx.fillStyle = 'rgba(0,0,0,0.2)';
         ctx.beginPath(); ctx.ellipse(x, y, 5 * u, 1.4 * u, 0, 0, Math.PI * 2); ctx.fill();
-        ctx.strokeStyle = K.color; ctx.lineWidth = Math.max(1, 1.1 * u);
-        const legH = a.kind === 'deer' ? 5 : 3.2;
+        // 다리
+        ctx.strokeStyle = a.kind === 'fowl' ? '#d9a13a' : K.color; ctx.lineWidth = Math.max(1, (a.kind === 'fowl' ? 0.5 : 1.1) * u);
         ctx.beginPath();
-        ctx.moveTo(x - 3 * u, y - legH * u); ctx.lineTo(x - 3 * u + sw, y);
-        ctx.moveTo(x + 3 * u, y - legH * u); ctx.lineTo(x + 3 * u - sw, y);
+        if (a.kind === 'fowl') { ctx.moveTo(x - 0.8 * u, y - legH * u); ctx.lineTo(x - 0.8 * u + sw * 0.5, y); ctx.moveTo(x + 0.8 * u, y - legH * u); ctx.lineTo(x + 0.8 * u - sw * 0.5, y); }
+        else { ctx.moveTo(x - 3 * u, y - legH * u); ctx.lineTo(x - 3 * u + sw, y); ctx.moveTo(x + 3 * u, y - legH * u); ctx.lineTo(x + 3 * u - sw, y); }
         ctx.stroke();
+        // 몸
+        const by = y - (legH + 1.8) * u;
         ctx.fillStyle = K.color;
-        ctx.beginPath(); ctx.ellipse(x, y - (legH + 1.8) * u, 4.6 * u, 2.4 * u, 0, 0, Math.PI * 2); ctx.fill();
-        const hx = x + d * 4.8 * u, hy = y - (legH + (a.kind === 'boar' ? 1.5 : 3.6)) * u;
-        ctx.beginPath(); ctx.ellipse(hx, hy, 2 * u, 1.6 * u, 0, 0, Math.PI * 2); ctx.fill();
-        if (a.kind === 'deer') {
-          ctx.strokeStyle = '#d9c29a'; ctx.lineWidth = Math.max(1, 0.5 * u);
-          ctx.beginPath(); ctx.moveTo(hx, hy - 1 * u); ctx.lineTo(hx - d * 1 * u, hy - 4 * u); ctx.moveTo(hx - d * 0.6 * u, hy - 2.6 * u); ctx.lineTo(hx + d * 1 * u, hy - 3.8 * u); ctx.stroke();
-          ctx.fillStyle = '#f3e6cf'; ctx.fillRect(x - d * 4.6 * u, y - (legH + 2.6) * u, 1 * u, 1 * u);
-        } else if (a.kind === 'boar') {
-          ctx.fillStyle = '#eee'; ctx.fillRect(hx + d * 1.4 * u, hy + 0.2 * u, 0.6 * u, 1.2 * u);
+        if (a.kind === 'sheep') {
+          for (let k = -2; k <= 2; k++) { ctx.beginPath(); ctx.arc(x + k * 1.6 * u, by + (k % 2) * 0.5 * u, 2.2 * u, 0, 7); ctx.fill(); }
+        } else if (a.kind === 'fowl') {
+          ctx.beginPath(); ctx.ellipse(x, by + 1.5 * u, 2.6 * u, 2 * u, 0, 0, 7); ctx.fill();
+          ctx.beginPath(); ctx.moveTo(x - d * 2 * u, by + 0.5 * u); ctx.lineTo(x - d * 4 * u, by - 1.5 * u); ctx.lineTo(x - d * 2.6 * u, by + 2 * u); ctx.fill();
+        } else if (a.kind === 'rabbit') {
+          ctx.beginPath(); ctx.ellipse(x, by + 1 * u, 3 * u, 2.2 * u, 0, 0, 7); ctx.fill();
+          ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(x - d * 3 * u, by + 0.6 * u, 0.9 * u, 0, 7); ctx.fill(); ctx.fillStyle = K.color;
         } else {
-          ctx.beginPath(); ctx.moveTo(hx - 1 * u, hy - 1 * u); ctx.lineTo(hx - 0.4 * u, hy - 3 * u); ctx.lineTo(hx + 0.4 * u, hy - 1 * u); ctx.fill();
-          ctx.strokeStyle = K.color; ctx.lineWidth = Math.max(1, 1 * u);
-          ctx.beginPath(); ctx.moveTo(x - d * 4.4 * u, y - (legH + 2) * u); ctx.lineTo(x - d * 7 * u, y - (legH + 3.5) * u); ctx.stroke();
-          if (a.target) { ctx.fillStyle = '#ff5050'; ctx.fillRect(hx + d * 0.6 * u, hy - 0.5 * u, 0.7 * u, 0.7 * u); }
+          ctx.beginPath(); ctx.ellipse(x, by, 4.6 * u, 2.4 * u, 0, 0, Math.PI * 2); ctx.fill();
+        }
+        if (a.kind === 'tiger') {
+          ctx.strokeStyle = '#2a1a10'; ctx.lineWidth = Math.max(1, 0.6 * u);
+          ctx.beginPath(); for (let k = -2; k <= 2; k++) { ctx.moveTo(x + k * 1.6 * u, by - 2.2 * u); ctx.lineTo(x + k * 1.6 * u - 0.5 * u, by + 0.6 * u); } ctx.stroke();
+        }
+        // 머리
+        const headUp = a.kind === 'boar' || a.kind === 'bear' ? 1.2 : a.kind === 'fowl' ? 3.6 : a.kind === 'rabbit' ? 2.2 : 3.4;
+        const hx = x + d * (a.kind === 'fowl' ? 2.4 : a.kind === 'rabbit' ? 3 : 4.8) * u, hy = y - (legH + headUp) * u;
+        ctx.fillStyle = a.kind === 'sheep' ? '#3d3a36' : K.color;
+        ctx.beginPath(); ctx.ellipse(hx, hy, (a.kind === 'fowl' ? 1.3 : 2) * u, (a.kind === 'fowl' ? 1.3 : 1.6) * u, 0, 0, Math.PI * 2); ctx.fill();
+        switch (a.kind) {
+          case 'deer':
+            ctx.strokeStyle = '#d9c29a'; ctx.lineWidth = Math.max(1, 0.5 * u);
+            ctx.beginPath(); ctx.moveTo(hx, hy - 1 * u); ctx.lineTo(hx - d * 1 * u, hy - 4 * u); ctx.moveTo(hx - d * 0.6 * u, hy - 2.6 * u); ctx.lineTo(hx + d * 1 * u, hy - 3.8 * u); ctx.stroke();
+            break;
+          case 'boar': ctx.fillStyle = '#eee'; ctx.fillRect(hx + d * 1.4 * u, hy + 0.2 * u, 0.6 * u, 1.2 * u); break;
+          case 'cattle':
+            ctx.strokeStyle = '#eee3c8'; ctx.lineWidth = Math.max(1, 0.6 * u);
+            ctx.beginPath(); ctx.moveTo(hx - 1.2 * u, hy - 1 * u); ctx.lineTo(hx - 2.4 * u, hy - 2.6 * u); ctx.moveTo(hx + 1.2 * u, hy - 1 * u); ctx.lineTo(hx + 2.4 * u, hy - 2.6 * u); ctx.stroke();
+            if (a.tame) { ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(x - 1 * u, by - 0.3 * u, 1.2 * u, 0, 7); ctx.fill(); }
+            break;
+          case 'fowl': ctx.fillStyle = '#e03030'; ctx.fillRect(hx - 0.5 * u, hy - 2.2 * u, 1 * u, 1 * u); ctx.fillStyle = '#e8b040'; ctx.fillRect(hx + d * 1.1 * u, hy - 0.2 * u, d * 1 * u, 0.6 * u); break;
+          case 'rabbit':
+            ctx.fillStyle = K.color;
+            ctx.beginPath(); ctx.ellipse(hx - 0.5 * u, hy - 2.6 * u, 0.5 * u, 1.8 * u, -0.2, 0, 7); ctx.ellipse(hx + 0.5 * u, hy - 2.6 * u, 0.5 * u, 1.8 * u, 0.2, 0, 7); ctx.fill();
+            break;
+          case 'bear':
+            ctx.beginPath(); ctx.arc(hx - 1.3 * u, hy - 1.4 * u, 0.8 * u, 0, 7); ctx.arc(hx + 1.3 * u, hy - 1.4 * u, 0.8 * u, 0, 7); ctx.fill();
+            break;
+          case 'tiger': case 'wolf':
+            ctx.beginPath(); ctx.moveTo(hx - 1.2 * u, hy - 1 * u); ctx.lineTo(hx - 0.6 * u, hy - 2.8 * u); ctx.lineTo(hx, hy - 1 * u); ctx.fill();
+            ctx.beginPath(); ctx.moveTo(hx + 0.2 * u, hy - 1 * u); ctx.lineTo(hx + 0.8 * u, hy - 2.8 * u); ctx.lineTo(hx + 1.3 * u, hy - 1 * u); ctx.fill();
+            ctx.strokeStyle = K.color; ctx.lineWidth = Math.max(1, 1 * u);
+            ctx.beginPath(); ctx.moveTo(x - d * 4.4 * u, by); ctx.lineTo(x - d * 7 * u, by - (a.tame ? 2.5 : 1.5) * u); ctx.stroke();
+            if (a.target) { ctx.fillStyle = '#ff5050'; ctx.fillRect(hx + d * 0.6 * u, hy - 0.5 * u, 0.7 * u, 0.7 * u); }
+            break;
+        }
+        // 가축 표시: 부족 색 목걸이, 개 이름
+        if (tribe) {
+          ctx.fillStyle = tribe.color; ctx.fillRect(hx - 1.2 * u, hy + 1 * u, 2.4 * u, 0.8 * u);
+          if (a.pet && s >= 30) { ctx.font = '11px sans-serif'; ctx.textAlign = 'center'; ctx.fillStyle = '#fff'; ctx.fillText(a.pet, x, hy - 4 * u); }
         }
         if (a.hp < K.hp && s >= 14) {
           ctx.fillStyle = '#300'; ctx.fillRect(x - 3 * u, y + 1.2 * u, 6 * u, 1 * u);
           ctx.fillStyle = '#e44'; ctx.fillRect(x - 3 * u, y + 1.2 * u, 6 * u * Math.max(0, a.hp) / K.hp, 1 * u);
+        }
+      }
+    }
+
+    // 불타는 칸
+    drawFires() {
+      const sim = this.sim, w = sim.world, ctx = this.ctx, s = this.cam.s, v = this.view;
+      if (!sim.fires || !sim.fires.size) return;
+      for (const i of sim.fires) {
+        const tx = i % w.w, ty = (i / w.w) | 0;
+        if (tx < v.x0 || tx > v.x1 || ty < v.y0 || ty > v.y1) continue;
+        const k = w.fire[i];
+        const [sx, sy] = this.toScreen(tx, ty);
+        ctx.fillStyle = `rgba(255,${90 + 60 * Math.sin(this.frame * 0.2 + i)},20,${0.35 + 0.25 * k})`;
+        ctx.fillRect(sx, sy, s, s);
+        if (s < 6) continue;
+        for (let m = 0; m < 3; m++) {
+          const fx = sx + s * (0.2 + m * 0.3), fb = sy + s * 0.95;
+          const hgt = s * (0.5 + 0.6 * k) * (0.8 + 0.3 * Math.sin(this.frame * 0.35 + i * 1.7 + m * 2));
+          ctx.fillStyle = m === 1 ? '#ffb02e' : '#ff6a1a';
+          ctx.beginPath(); ctx.moveTo(fx - s * 0.16, fb); ctx.quadraticCurveTo(fx + s * 0.05 * Math.sin(this.frame * 0.3 + m), fb - hgt, fx + s * 0.16, fb); ctx.fill();
+          ctx.fillStyle = '#ffe27a';
+          ctx.beginPath(); ctx.moveTo(fx - s * 0.07, fb); ctx.quadraticCurveTo(fx, fb - hgt * 0.5, fx + s * 0.07, fb); ctx.fill();
+        }
+      }
+    }
+
+    // 가축 우리 울타리
+    drawPen(t) {
+      if (!t.pen) return;
+      const ctx = this.ctx, s = this.cam.s;
+      const [x, y] = this.toScreen(t.pen.x, t.pen.y);
+      const r = 2.6 * s;
+      ctx.strokeStyle = '#8a6a40'; ctx.lineWidth = Math.max(1, s * 0.08);
+      ctx.strokeRect(x - r, y - r * 0.8, r * 2, r * 1.6);
+      if (s >= 10) {
+        ctx.fillStyle = '#6b4f2c';
+        for (let k = 0; k <= 6; k++) {
+          const px = x - r + (2 * r * k) / 6;
+          ctx.fillRect(px - s * 0.05, y - r * 0.8 - s * 0.15, s * 0.1, s * 0.3);
+          ctx.fillRect(px - s * 0.05, y + r * 0.8 - s * 0.15, s * 0.1, s * 0.3);
         }
       }
     }

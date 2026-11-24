@@ -7,12 +7,13 @@
     CHILD: '아이', NONE: '떠돌이', GATHER: '채집꾼', WOOD: '나무꾼', MINE: '광부',
     MERCHANT: '상인', WARRIOR: '전사', PRIEST: '사제', CHIEF: '족장',
     HUNTER: '사냥꾼', FISHER: '어부', FARMER: '농부', SMITH: '대장장이', HEALER: '치료사', GUARD: '경비병',
+    HERDER: '목동', WATCH: '경비원',
   });
   G.JOB_DESC = {
     채집꾼: '열매와 풀을 모은다', 나무꾼: '숲에서 나무를 벤다', 광부: '산에서 광석을 캔다', 상인: '다른 부족과 장사한다',
     전사: '전쟁에서 싸우고 마을을 지킨다', 사제: '의식을 올려 신앙을 모은다', 족장: '부족을 이끌고 재판한다', 사냥꾼: '사슴과 멧돼지를 잡고 늑대를 쫓는다',
     어부: '물가에서 물고기를 잡는다', 농부: '밭을 일구고 곡식을 거둔다', 대장장이: '광석으로 도구를 만들어 일을 빠르게 한다',
-    치료사: '다친 사람과 마음이 아픈 사람을 돌본다', 경비병: '범죄자를 쫓고 감옥을 지킨다', 아이: '놀면서 자란다', 떠돌이: '부족 없이 떠돈다',
+    치료사: '다친 사람과 마음이 아픈 사람을 돌본다', 경비병: '범죄자를 쫓고 감옥을 지킨다', 목동: '들짐승을 길들여 가축으로 기르고 돌본다', 경비원: '호랑이·늑대·곰 같은 맹수로부터 마을과 가축을 지킨다', 아이: '놀면서 자란다', 떠돌이: '부족 없이 떠돈다',
   };
   const JOB_RES = { [J.GATHER]: 'food', [J.WOOD]: 'wood', [J.MINE]: 'ore' };
   G.RES_NAME = { food: '식량', wood: '나무', ore: '광석' };
@@ -51,6 +52,7 @@
       this.parents = o.parents || [];
       this.children = [];
       this.traits = o.traits || G.makeTraits();
+      G.Persona.init(sim, this, o.parents);
       this.faith = o.faith ?? rand(25, 55);
       if (this.has('신앙심 깊은')) this.faith = Math.max(this.faith, 60);
       this.happy = 55;
@@ -95,10 +97,13 @@
         this.health -= 0.25;
         this.faith = Math.max(0, this.faith - 0.01);
       } else if (this.hunger < 60) {
-        this.health = Math.min(100, this.health + 0.05);
+        this.health = Math.min(this.maxHp, this.health + 0.05 * (0.6 + this.body / 125));
       }
       if (this.health <= 0) return sim.kill(this, this.hunger >= 100 ? '굶주림' : '상처');
-      if (this.age > 55 && chance(Math.pow((this.age - 55) / 28, 2) / TPY)) return sim.kill(this, '노환');
+      if (this.health > this.maxHp) this.health = this.maxHp;
+      // 체력이 좋으면 오래 산다
+      const oldAt = 50 + this.body * 0.12;
+      if (this.age > oldAt && chance(Math.pow((this.age - oldAt) / 28, 2) / TPY)) return sim.kill(this, '노환');
 
       const base = this.has('신앙심 깊은') ? 55 : this.has('의심 많은') ? 15 : 30;
       this.faith += (base - this.faith) * 0.0003;
@@ -139,7 +144,7 @@
           if (this.timer <= 0) this.state = 'idle';
           else if (this.timer % 30 === 0) this.doPray(sim);
           break;
-        case 'rest': case 'party': if (this.timer <= 0) this.state = 'idle'; break;
+        case 'rest': case 'party': case 'hobby': if (this.timer <= 0) this.state = 'idle'; break;
         case 'fight': this.doFight(sim); break;
         case 'busy': if (this.timer <= 0) this.finishBusy(sim); break;
         case 'jailed':
@@ -173,8 +178,12 @@
       }
       this.refused = false;
 
+      // 불이 나면 물을 떠 와서 끈다
+      if (G.Fire.decide(sim, this)) return;
+      if (this.carry === 'water') { this.carry = null; this.carryAmt = 0; }
+
       // 2) 들고 있는 자원 맡기기
-      if (t && this.carry && this.carryAmt > 0 && this.carry !== 'food-own') {
+      if (t && this.carry && this.carryAmt > 0) {
         return this.goTo(sim, t.cx + rand(-0.8, 0.8), t.cy + rand(-0.8, 0.8), { kind: 'deposit' });
       }
 
@@ -205,7 +214,8 @@
       // 5) 여가: 데이트, 친구 찾아가기
       if (this.adult && this.hunger < 40) {
         if ((this.partner || this.lover || this.affair) && chance(this.affair ? 0.05 : 0.03) && G.Social.startDate(sim, this)) return;
-        if (chance(0.02) && G.Social.visitFriend(sim, this)) return;
+        if (chance(0.01 + this.p.extra / 4000) && G.Social.visitFriend(sim, this)) return;
+        if (G.Persona.leisure(sim, this)) return;
       }
 
       // 6) 직업별 행동
@@ -238,6 +248,13 @@
           if (chance(0.5)) return this.work(sim, 'food');
           return this.wander(sim, t.cx, t.cy, 5);
         }
+        case J.HERDER:
+          if (chance(0.5) && G.Wild.startTame(sim, this)) return;
+          if (G.Wild.startTend(sim, this)) return;
+          if (G.Wild.startTame(sim, this)) return;
+          return this.work(sim, 'food');
+        case J.WATCH:
+          return G.Wild.watchDecide(sim, this);
         case J.GUARD:
           if (G.Crime.guardDecide(sim, this)) return;
           if (t.jail && chance(0.5)) return this.wander(sim, t.jail.x, t.jail.y, 2.5);
@@ -318,6 +335,16 @@
         case 'treat': G.Mind.treat(sim, this, sim.byId.get(k.pid)); this.state = 'rest'; this.timer = 40; break;
         case 'till': this.state = 'busy'; this.busy = k; this.timer = 70; this.say('⚒', 70); return;
         case 'forge': this.state = 'busy'; this.busy = k; this.timer = 110; this.say('⚒', 110); return;
+        case 'tend': this.state = 'busy'; this.busy = k; this.timer = 90; this.say('♥', 60); return;
+        case 'tame': this.task = null; G.Wild.onArriveTame(sim, this, k); return;
+        case 'fetch': this.task = null; G.Fire.onFetch(sim, this); return;
+        case 'douse': this.task = null; G.Fire.onDouse(sim, this, k); return;
+        case 'confront': {
+          const o = sim.byId.get(k.with);
+          if (o && o.alive && G.dist(o.x, o.y, this.x, this.y) < 3) G.Social.argue(sim, this, o, G.Social.rel(this, o));
+          break;
+        }
+        case 'hobby': this.task = null; G.Persona.onHobby(sim, this, k); return;
         case 'visit': {
           const o = sim.byId.get(k.with);
           if (o && o.alive && G.dist(o.x, o.y, this.x, this.y) < 3) { G.Social.interact(sim, this, o); this.state = 'rest'; this.timer = 60; }
@@ -338,6 +365,8 @@
           if (t) t.farmCount++;
           if (!this.tilled) { this.tilled = true; this.log(sim, '처음으로 밭을 일구었다'); }
         }
+      } else if (k.kind === 'tend') {
+        G.Wild.finishTend(sim, this);
       } else if (k.kind === 'forge' && t && t.stock.ore >= 1) {
         t.stock.ore -= 1; t.tools += 1;
         this.forged = (this.forged || 0) + 1;
@@ -353,6 +382,9 @@
       if (this.happy < 30) t *= 1.25; else if (this.happy > 70) t *= 0.85; // 기분이 일에 영향
       if (this.pregnant) t *= 1.2;
       t *= G.Mind.workMult(this);
+      t *= 1.25 - this.p.consc * 0.0045;       // 성실할수록 빠르다
+      t *= 1.1 - this.body * 0.002;            // 튼튼할수록 빠르다
+      if (this.sick) t *= 1.5;
       if (this.tribe) t *= 1 - this.tribe.toolBonus();
       return Math.floor(t);
     }
@@ -493,6 +525,7 @@
       if (this.has('용감한')) dmg *= 1.3;
       if (this.job === J.WARRIOR) dmg *= 1.3;
       if (this.tribe) dmg *= 1 + this.tribe.toolBonus();
+      dmg *= 0.7 + this.body * 0.006;
       if (this.age < 16 || this.age > 60) dmg *= 0.6;
       e.health -= dmg;
       e.say('!', 30);
@@ -528,7 +561,8 @@
       if (this.age < 10) sp *= 0.7;
       if (this.age > 60) sp *= 0.75;
       if (this.hunger >= 100) sp *= 0.8;
-      if (this.job === J.MERCHANT) sp *= 1.15;
+      if (this.job === J.MERCHANT) sp *= this.tribe && this.tribe.has('바퀴') ? 1.4 : 1.15;
+      if (this.sick) sp *= 0.7;
       if (this.pregnant) sp *= 0.85;
       sp = Math.min(sp, d);
       const ang = Math.atan2(dy, dx);

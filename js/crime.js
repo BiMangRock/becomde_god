@@ -30,6 +30,9 @@
     if ((h.stress || 0) > 60) u *= 1.5;
     if (h.outlaw) u *= 2.5;
     if (h.faith > 70) u *= 0.7;
+    u *= (0.6 + h.p.impulse / 125) * (1.4 - h.p.agree / 125);
+    if (h.addiction > 50 && h.gold < 5) u *= 1.6;
+    if (h.drunk > 0) u *= 1.5;
     return u;
   };
 
@@ -108,7 +111,9 @@
       const ws = C.witnesses(sim, o.x, o.y, [h, o]);
       // 작은 공동체에서는 폭력이 드물다
       const stressMul = ((h.stress || 0) > 50 ? 1.5 : 1) * Math.min(1, sim.humans.length / 45);
-      if (motive >= 75 && ws.length <= 2 && chance(0.06 * u * stressMul)) return C.murder(sim, h, o, ws);
+      // 살인은 충동적이거나 냉정하거나 몹시 지친 사람만 저지른다
+      const capable = h.p.impulse > 60 || h.has('냉정한') || (h.stress || 0) > 60 || h.drunk > 0 ? 1 : 0.25;
+      if (motive >= 75 && ws.length <= 2 && chance(0.06 * u * stressMul * capable)) return C.murder(sim, h, o, ws);
       if (d < 2.5 && chance(0.03 * u * stressMul)) return C.assault(sim, h, o, ws);
     }
   };

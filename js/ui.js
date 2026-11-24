@@ -11,8 +11,9 @@
       case 'pray': return '기도하는 중';
       case 'rest': return h.emote === '♥' && h.emoteT > 0 ? '연인과 시간을 보내는 중' : '쉬는 중';
       case 'party': return '축제에서 춤추는 중';
+      case 'hobby': return h.curHobby === '공부' ? '혼자 조용히 공부하는 중' : `${h.curHobby || '취미'}을(를) 즐기는 중`;
       case 'jailed': return `감옥에 갇혀 있음 (남은 형기 ${Math.max(0, h.jail.until - sim.year).toFixed(1)}년)`;
-      case 'busy': return h.busy && h.busy.kind === 'till' ? '밭을 일구는 중' : '도구를 만드는 중';
+      case 'busy': return h.busy && h.busy.kind === 'till' ? '밭을 일구는 중' : h.busy && h.busy.kind === 'tend' ? '가축을 돌보는 중' : '도구를 만드는 중';
       case 'fight': return `${h.target ? h.target.name + '와(과) ' : ''}싸우는 중`;
       case 'goto':
         if (k === 'gather') return `${G.RES_NAME[h.task.res]} 모으러 가는 중`;
@@ -28,6 +29,12 @@
         if (k === 'arrest') { const o = sim.byId.get(h.task.id); return `수배자 ${o ? o.name : ''}을(를) 쫓는 중`; }
         if (k === 'treat') { const o = sim.byId.get(h.task.pid); return `${o ? o.name : '환자'}을(를) 치료하러 가는 중`; }
         if (k === 'till') return '밭을 일구러 가는 중';
+        if (k === 'tame') { const a = sim.animals.find((x) => x.id === h.task.aid); return `${a ? G.Wild.KINDS[a.kind].name : '들짐승'}을(를) 길들이러 가는 중`; }
+        if (k === 'tend') return '가축을 돌보러 가는 중';
+        if (k === 'fetch') return '불을 끄려고 물을 뜨러 가는 중';
+        if (k === 'douse') return h.task.dirt ? '흙을 덮어 불을 끄러 가는 중' : '물을 들고 불을 끄러 가는 중';
+        if (k === 'confront') { const o = sim.byId.get(h.task.with); return `연적 ${o ? o.name : ''}에게 따지러 가는 중`; }
+        if (k === 'hobby') return h.task.hobby === '공부' ? '조용한 곳으로 공부하러 가는 중' : `${h.task.hobby}을(를) 하러 가는 중`;
         if (k === 'forge') return '대장간으로 가는 중';
         return '걷는 중';
       default: return '생각하는 중';
@@ -109,6 +116,7 @@
           ${h.jail ? '<span class="chip" style="color:#ffb070">수감 중</span>' : ''}${h.wanted ? '<span class="chip" style="color:#ff6b6b">수배 중</span>' : ''}${h.outlaw ? '<span class="chip" style="color:#bbb">무법자</span>' : ''}</div>
         <p class="muted" style="margin:8px 0">지금 ${STATE_TEXT(h, sim)}${h.pregnant ? ` · <span style="color:#ff9ac1">임신 ${Math.max(1, Math.round((1 - h.pregnant / (G.CFG.TPY * 0.75)) * 9))}개월</span>` : ''}</p>
         ${this.bars(h)}
+        ${this.personaBlock(h)}
         ${this.moodBlock(h)}
         ${this.mindBlock(h)}
         ${this.relBlock(h)}
@@ -140,6 +148,28 @@
         return `<span class="chip" title="${leftTxt} 남음"><b style="color:${col}">${M.v > 0 ? '+' : ''}${M.v}</b> ${esc(M.t)}</span>`;
       }).join('');
       return `<h4>기분 · <span style="color:${lab.c}">${lab.t}</span> (${Math.round(h.happy)})</h4><div>${chips || '<span class="muted">특별한 일 없음</span>'}</div>`;
+    }
+
+    personaBlock(h) {
+      const P = G.Persona;
+      const bar = (k, v, col, tip) => `<span title="${esc(tip || '')}">${k}</span><div class="bar" title="${esc(tip || '')}"><i style="width:${Math.max(0, Math.min(100, v))}%;background:${col}"></i></div><span>${Math.round(v)}</span>`;
+      const dims = Object.entries(P.DIMS).map(([k, D]) => bar(D.name, h.p[k], h.p[k] >= 65 ? '#f0b35a' : h.p[k] <= 35 ? '#7aa7e0' : '#9aa6b8', h.p[k] >= 50 ? D.hi : D.lo)).join('');
+      const tetoPct = (h.teto + 100) / 2;
+      const prefTxt = h.typePref === 'teto' ? '테토 스타일' : h.typePref === 'egen' ? '에겐 스타일' : '스타일 상관없음';
+      return `<h4>기질</h4>
+        <div class="kv">
+          <span class="k">체력</span><span>${P.bodyLabel(h.body)} (${h.body}) · 최대 체력 ${h.maxHp}${h.sick ? ` · <span style="color:#ffb070">${esc(h.sick.name)} 앓는 중</span>` : ''}</span>
+          <span class="k">테토/에겐</span><span>${P.tetoLabel(h.teto)} (${h.teto > 0 ? '+' : ''}${h.teto})
+            <div class="bar" style="margin-top:3px;background:linear-gradient(90deg,#d98bd0,#555 50%,#e0a050)"><i style="width:3px;margin-left:calc(${tetoPct}% - 1px);background:#fff"></i></div></span>
+          <span class="k">외모·매력</span><span>외모 ${h.looks} · 매력 ${P.charm(h)}</span>
+          <span class="k">좋아함</span><span>${h.likes.map((x) => `<span class="chip">${esc(x)}</span>`).join('')}</span>
+          <span class="k">싫어함</span><span><span class="chip" style="color:#ff9a7a">${esc(h.dislike)}</span></span>
+          <span class="k">이상형</span><span>${prefTxt} · ${esc(h.wants)}을(를) 봄</span>
+          <span class="k">지식</span><span>${h.knowledge.toFixed(1)}${h.discoveries ? ` · 발견 ${h.discoveries}개` : ''} · 학구열 ${Math.round(P.studyZeal(h) * 100)}</span>
+          ${h.addiction > 10 ? `<span class="k">중독</span><span style="color:#ffb070">${Math.round(h.addiction)} ${h.addiction > 50 ? '(술과 도박에 빠져 있음)' : ''}</span>` : ''}
+        </div>
+        <h4 style="margin-top:10px">성격 <span class="muted" style="font-weight:400">(막대에 마우스를 올리면 장단점)</span></h4>
+        <div class="bars">${dims}</div>`;
     }
 
     mindBlock(h) {
@@ -236,6 +266,13 @@
           <span class="k">분위기</span><span>${(() => { const a = t.members.reduce((s, m) => s + m.happy, 0) / Math.max(1, t.members.length); return a >= 65 ? '활기참' : a >= 50 ? '평온함' : a >= 35 ? '침울함' : '험악함'; })()} · 부부 ${Math.floor(t.members.filter((m) => m.partner && m.partner.alive).length / 2)}쌍${t.lastFestival ? ` · 마지막 축제 ${Math.floor(t.lastFestival)}년` : ''}</span>
         </div>
         ${(() => {
+          const herd = G.Wild.livestock(sim, t);
+          const by = {};
+          for (const a of herd) { const n = G.Wild.KINDS[a.kind].tame; by[n] = (by[n] || 0) + 1; }
+          const lore = t.lore ? `<span class="k">지식</span><span>${Math.floor(t.lore)} · 발견: ${(t.found || []).join(', ') || '아직 없음'}</span>` : '';
+          return `<div class="kv" style="margin-top:6px"><span class="k">가축</span><span>${herd.length ? Object.entries(by).map(([k, n]) => `${k} ${n}`).join(' · ') : '없음'}${t.pen ? ' · 우리 있음' : ''}</span>${lore}</div>`;
+        })()}
+        ${(() => {
           const ps = t.prisoners(sim);
           return ps.length ? `<h4>수감자 (${ps.length})</h4><table class="mini">${ps.map((p) => `<tr><td>${this.personLink(p)}</td><td>${esc(p.crimes.filter((c) => c.punished).slice(-2).map((c) => c.type).join(', '))} · 남은 ${Math.max(0, p.jail.until - sim.year).toFixed(1)}년</td></tr>`).join('')}</table>` : '';
         })()}
@@ -301,7 +338,10 @@
           <span class="k">사법</span><span>체포 ${sim.stats.arrests || 0} · 수감 중 ${sim.humans.filter((h) => h.jail).length} · 탈옥 ${sim.stats.escapes || 0} · 추방 ${sim.stats.exiles || 0}</span>
           <span class="k">무법자</span><span>${sim.humans.filter((h) => h.alive && h.outlaw).length}명 · 도적단 ${tribes.filter((t) => t.bandit).length}개</span>
           <span class="k">마음의 병</span><span>${sim.humans.filter((h) => h.mind).length}명 앓는 중 · 회복 ${sim.stats.recovered || 0}명</span>
-          <span class="k">동물</span><span>${['deer', 'boar', 'wolf'].map((k) => `${G.Wild.KINDS[k].name} ${sim.animals.filter((a) => a.alive && a.kind === k).length}`).join(' · ')}</span>
+          <span class="k">야생 동물</span><span>${Object.keys(G.Wild.KINDS).map((k) => { const n = sim.animals.filter((a) => a.alive && a.kind === k && !a.tame).length; return n ? `${G.Wild.KINDS[k].name} ${n}` : ''; }).filter(Boolean).join(' · ')}</span>
+          <span class="k">가축</span><span>${sim.animals.filter((a) => a.alive && a.tame).length}마리 · 길들임 ${sim.stats.tamed || 0}번</span>
+          <span class="k">불</span><span>${sim.fires.size ? `<span style="color:#ff8a3d">지금 ${sim.fires.size}곳이 타는 중</span>` : '없음'}</span>
+          <span class="k">세상 크기</span><span>${sim.world.w} × ${sim.world.h}</span>
         </div>
         <h4>부족 (${tribes.length})</h4>
         ${tribes.length ? tribes.map((t) => `<div class="tribe-row" data-act="tribe" data-id="${t.id}"><span class="dot" style="background:${t.color}"></span><span class="n">${esc(t.name)}</span>${t.wars.size ? '<span class="war">전쟁</span>' : ''}<span class="muted">${t.members.length}명</span></div>`).join('') : '<p class="muted">아직 부족이 없습니다. 사람들이 모여 지내다 보면 부족이 생깁니다.</p>'}

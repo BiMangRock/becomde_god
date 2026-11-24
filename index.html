@@ -41,6 +41,41 @@
     <button data-z="0.714" title="축소">−</button>
   </div>
 
+  <canvas id="minimap" width="170" height="128" title="누르면 그곳으로 이동"></canvas>
+
+  <div id="setup" hidden>
+    <div class="setup-box">
+      <h1>신되기</h1>
+      <p class="muted">어떤 세상을 만들까요?</p>
+      <h4>섬 크기</h4>
+      <div class="opts">
+        <button data-opt="size" data-v="small">작음<small>120×90</small></button>
+        <button data-opt="size" data-v="normal" class="on">보통<small>160×120</small></button>
+        <button data-opt="size" data-v="large">큼<small>240×180</small></button>
+        <button data-opt="size" data-v="huge">아주 큼<small>320×240</small></button>
+      </div>
+      <h4>처음 인간 수</h4>
+      <div class="opts">
+        <button data-opt="pop" data-v="4">4명</button>
+        <button data-opt="pop" data-v="8" class="on">8명</button>
+        <button data-opt="pop" data-v="16">16명</button>
+        <button data-opt="pop" data-v="30">30명</button>
+      </div>
+      <h4>동물</h4>
+      <div class="opts">
+        <button data-opt="animals" data-v="0.4">적음</button>
+        <button data-opt="animals" data-v="1" class="on">보통</button>
+        <button data-opt="animals" data-v="2">많음</button>
+      </div>
+      <h4>시드 <span class="muted">(비우면 무작위, 같은 시드는 같은 섬)</span></h4>
+      <input id="setup-seed" placeholder="예: 우리섬">
+      <div class="row-btns" style="margin-top:16px">
+        <button id="setup-go" class="on">세상 만들기</button>
+        <button id="setup-cancel">취소</button>
+      </div>
+    </div>
+  </div>
+
   <div id="hint">휠·두 손가락: 확대/축소 · 드래그: 이동 · 사람을 누르면 그 사람의 이야기가 보입니다</div>
   <div id="toast"></div>
 
@@ -48,11 +83,14 @@
   <script src="js/world.js"></script>
   <script src="js/human.js"></script>
   <script src="js/tribe.js"></script>
+  <script src="js/persona.js"></script>
+  <script src="js/fire.js"></script>
   <script src="js/mind.js"></script>
   <script src="js/crime.js"></script>
   <script src="js/wildlife.js"></script>
   <script src="js/social.js"></script>
   <script src="js/sim.js"></script>
+  <script src="js/fx.js"></script>
   <script src="js/render.js"></script>
   <script src="js/ui.js"></script>
   <script src="js/main.js"></script>
