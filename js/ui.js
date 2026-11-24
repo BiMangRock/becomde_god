@@ -1,0 +1,249 @@
+// 오른쪽 정보 패널과 기록
+(function () {
+  const G = globalThis.G;
+  const J = G.JOB;
+  const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+  const STATE_TEXT = (h, sim) => {
+    const k = h.task && h.task.kind;
+    switch (h.state) {
+      case 'gather': return `${G.RES_NAME[h.task?.res] || '자원'} 모으는 중`;
+      case 'pray': return '기도하는 중';
+      case 'rest': return '쉬는 중';
+      case 'fight': return `${h.target ? h.target.name + '와(과) ' : ''}싸우는 중`;
+      case 'goto':
+        if (k === 'gather') return `${G.RES_NAME[h.task.res]} 모으러 가는 중`;
+        if (k === 'deposit') return '마을로 짐을 나르는 중';
+        if (k === 'eat') return '밥 먹으러 가는 중';
+        if (k === 'trade-sell') { const t = sim.tribeById(h.task.to); return `${t ? t.name : '다른 부족'}에 장사하러 가는 중`; }
+        if (k === 'raid') { const t = sim.tribeById(h.task.to); return `${t ? t.name : '적'} 마을로 진격하는 중`; }
+        if (k === 'pray') return '기도하러 가는 중';
+        return '걷는 중';
+      default: return '생각하는 중';
+    }
+  };
+
+  class UI {
+    constructor(app) {
+      this.app = app;
+      this.info = document.getElementById('info');
+      this.logEl = document.getElementById('log');
+      this.view = 'overview'; // overview | archive
+      this.holding = false;
+      this.lastLogKey = '';
+      this.info.addEventListener('pointerdown', () => (this.holding = true));
+      window.addEventListener('pointerup', () => setTimeout(() => (this.holding = false), 0));
+      this.info.addEventListener('click', (e) => this.onClick(e));
+      this.logEl.addEventListener('click', (e) => {
+        const el = e.target.closest('.ev');
+        if (!el || el.dataset.x === undefined || el.dataset.x === '') return;
+        app.focus(+el.dataset.x, +el.dataset.y);
+      });
+    }
+
+    onClick(e) {
+      const el = e.target.closest('[data-act]');
+      if (!el) return;
+      const app = this.app, sim = app.sim, a = el.dataset.act, id = +el.dataset.id;
+      if (a === 'human') {
+        const h = sim.byId.get(id);
+        if (h) { app.select({ type: 'human', h }); app.focus(h.x, h.y); }
+        else if (sim.archiveById.get(id)) app.select({ type: 'dead', rec: sim.archiveById.get(id) });
+        else app.toast('기록이 남아 있지 않습니다');
+      } else if (a === 'tribe') {
+        const t = sim.tribes.find((t) => t.id === id);
+        if (t && t.alive) { app.select({ type: 'tribe', t }); app.focus(t.cx, t.cy); }
+      } else if (a === 'follow') {
+        app.follow = !app.follow;
+      } else if (a === 'close') {
+        app.select(null); this.view = 'overview';
+      } else if (a === 'archive') {
+        app.select(null); this.view = 'archive';
+      } else if (a === 'overview') {
+        this.view = 'overview';
+      }
+      this.render(true);
+    }
+
+    personLink(p) {
+      if (!p) return '';
+      const sim = this.app.sim;
+      const alive = sim.byId.get(p.id);
+      const known = alive || sim.archiveById.get(p.id);
+      const name = esc(p.name || (alive && alive.name) || '?');
+      const mark = alive ? '' : ' †';
+      return known ? `<span class="link" data-act="human" data-id="${p.id}">${name}${mark}</span>` : `<span class="muted">${name}${mark}</span>`;
+    }
+
+    bars(h) {
+      const row = (k, v, col) => `<span>${k}</span><div class="bar"><i style="width:${Math.max(0, Math.min(100, v))}%;background:${col}"></i></div><span>${Math.round(v)}</span>`;
+      return `<div class="bars">${row('배고픔', h.hunger, '#e8a33d')}${row('건강', h.health, '#5cc46a')}${row('신앙', h.faith, '#f5d76e')}${row('행복', h.happy, '#6fb3ff')}</div>`;
+    }
+
+    storyList(story) {
+      return `<ul class="story">${story.slice().reverse().map((s) => `<li><span class="yr">${s.y}년</span>${esc(s.t)}</li>`).join('')}</ul>`;
+    }
+
+    renderHuman(h) {
+      const sim = this.app.sim;
+      const t = h.tribe;
+      const children = h.children.map((id) => {
+        const c = sim.byId.get(id) || sim.archiveById.get(id);
+        return c ? this.personLink({ id, name: c.name }) : '';
+      }).filter(Boolean);
+      return `
+        <h2>${esc(h.name)} <span class="muted">${h.gender === 'M' ? '남' : '여'} · ${Math.floor(h.age)}세</span></h2>
+        <div>${t ? `<span class="chip link" data-act="tribe" data-id="${t.id}"><span class="dot" style="background:${t.color}"></span> ${esc(t.name)}</span>` : '<span class="chip">부족 없음</span>'}
+          <span class="chip">${esc(h.job)}</span>${h.traits.map((x) => `<span class="chip">${esc(x)}</span>`).join('')}</div>
+        <p class="muted" style="margin:8px 0">지금 ${STATE_TEXT(h, sim)}</p>
+        ${this.bars(h)}
+        <h4>재산과 가족</h4>
+        <div class="kv">
+          <span class="k">금화</span><span>${Math.floor(h.gold)}개${h.carry ? ` · ${G.RES_NAME[h.carry] || ''} ${h.carryAmt}개 운반 중` : ''}</span>
+          <span class="k">부모</span><span>${h.parents.length ? h.parents.map((p) => this.personLink(p)).join(', ') : '<span class="muted">신이 빚었거나 알 수 없음</span>'}</span>
+          <span class="k">배우자</span><span>${h.partner && h.partner.alive ? this.personLink(h.partner) : '<span class="muted">없음</span>'}</span>
+          <span class="k">자녀</span><span>${children.length ? children.join(', ') : '<span class="muted">없음</span>'}</span>
+          ${h.kills ? `<span class="k">전공</span><span>${h.kills}명을 쓰러뜨림</span>` : ''}
+        </div>
+        <div class="row-btns">
+          <button data-act="follow" class="${this.app.follow ? 'on' : ''}">${this.app.follow ? '따라가는 중' : '따라가기'}</button>
+          <button data-act="close">닫기</button>
+        </div>
+        <h4>${esc(h.name)}의 이야기</h4>
+        ${this.storyList(h.story)}`;
+    }
+
+    renderDead(r) {
+      return `
+        <h2>${esc(r.name)} † <span class="muted">${r.gender === 'M' ? '남' : '여'} · ${r.age}세</span></h2>
+        <div>${r.tribe ? `<span class="chip"><span class="dot" style="background:${r.color}"></span> ${esc(r.tribe)}</span>` : ''}<span class="chip">${esc(r.job)}</span>${r.traits.map((x) => `<span class="chip">${esc(x)}</span>`).join('')}</div>
+        <p class="muted">${r.born < 0 ? '태초에' : r.born + '년에'} 태어나 ${r.died}년에 ${esc(G.josa(r.cause, '으로/로'))} 세상을 떠났습니다.</p>
+        <div class="kv">
+          <span class="k">부모</span><span>${r.parents.length ? r.parents.map((p) => this.personLink(p)).join(', ') : '<span class="muted">알 수 없음</span>'}</span>
+          <span class="k">자녀</span><span>${r.children.length}명</span>
+          ${r.kills ? `<span class="k">전공</span><span>${r.kills}명</span>` : ''}
+        </div>
+        <div class="row-btns"><button data-act="archive">기록관으로</button><button data-act="close">닫기</button></div>
+        <h4>남겨진 이야기 (최근 ${r.story.length}개)</h4>
+        ${this.storyList(r.story)}`;
+    }
+
+    renderTribe(t) {
+      const sim = this.app.sim;
+      const others = sim.tribes.filter((o) => o !== t && o.alive);
+      const rel = others.map((o) => {
+        const v = Math.round(sim.getRel(t, o));
+        const war = t.wars.has(o.id);
+        const word = war ? '<span class="war">전쟁 중</span>' : v > 30 ? '우호' : v < -30 ? '적대' : '보통';
+        return `<tr><td><span class="link" data-act="tribe" data-id="${o.id}"><span class="dot" style="background:${o.color}"></span> ${esc(o.name)}</span></td><td>${word} (${v})</td></tr>`;
+      }).join('');
+      const jobs = {};
+      for (const m of t.members) jobs[m.job] = (jobs[m.job] || 0) + 1;
+      const members = t.members.slice().sort((a, b) => b.age - a.age).slice(0, 40)
+        .map((m) => this.personLink(m)).join(', ');
+      return `
+        <h2><span class="dot" style="background:${t.color};width:14px;height:14px"></span>${esc(t.name)}</h2>
+        <p class="muted" style="margin:4px 0 8px">${t.founded}년에 세워짐${t.temple ? ' · 신전 있음' : ''}</p>
+        <div class="kv">
+          <span class="k">족장</span><span>${t.chief ? this.personLink(t.chief) : '<span class="muted">없음</span>'}</span>
+          <span class="k">인구</span><span>${t.members.length}명 (최대 ${t.peak}명) · 집 ${t.houses.length}채</span>
+          <span class="k">금고</span><span>금화 ${Math.floor(t.treasury)}개</span>
+          <span class="k">출생/사망</span><span>${t.births} / ${t.deaths}</span>
+        </div>
+        <h4>창고와 시장 가격</h4>
+        <table class="mini">
+          ${['food', 'wood', 'ore'].map((r) => `<tr><td>${G.RES_NAME[r]} ${Math.floor(t.stock[r])}개</td><td>개당 금화 ${t.price(r).toFixed(1)}</td></tr>`).join('')}
+        </table>
+        <h4>직업</h4>
+        <div>${Object.entries(jobs).map(([j, n]) => `<span class="chip">${esc(j)} ${n}</span>`).join('')}</div>
+        ${rel ? `<h4>다른 부족과의 관계</h4><table class="mini">${rel}</table>` : ''}
+        <h4>구성원</h4>
+        <div style="font-size:12.5px;line-height:1.7">${members}${t.members.length > 40 ? ' …' : ''}</div>
+        <div class="row-btns"><button data-act="close">닫기</button></div>
+        <h4>연대기</h4>
+        ${this.storyList(t.chronicle)}`;
+    }
+
+    renderTile(tile) {
+      const w = this.app.sim.world;
+      const i = w.idx(tile.x, tile.y);
+      return `
+        <h2>${G.TILE_NAMES[w.type[i]]}</h2>
+        <p class="muted">(${tile.x}, ${tile.y})</p>
+        <div class="kv">
+          <span class="k">식량</span><span>${w.food[i].toFixed(1)}</span>
+          <span class="k">나무</span><span>${w.wood[i].toFixed(1)}</span>
+          <span class="k">광석</span><span>${w.ore[i].toFixed(1)}</span>
+          <span class="k">비옥함</span><span>${w.fert[i].toFixed(2)}</span>
+        </div>
+        <div class="row-btns"><button data-act="close">닫기</button></div>`;
+    }
+
+    renderOverview() {
+      const sim = this.app.sim;
+      const tribes = sim.tribes.filter((t) => t.alive).sort((a, b) => b.members.length - a.members.length);
+      const loners = sim.humans.filter((h) => h.alive && !h.tribe).length;
+      const gold = sim.humans.reduce((s, h) => s + (h.alive ? h.gold : 0), 0) + tribes.reduce((s, t) => s + t.treasury, 0);
+      return `
+        <h2>세상</h2>
+        <p class="muted" style="margin:4px 0 10px">당신은 이 섬의 신입니다. 인간들은 스스로 살아가며 부족을 이루고, 거래하고, 싸웁니다. 왼쪽 권능으로 세상에 손을 대 보세요.</p>
+        <div class="kv">
+          <span class="k">태어남</span><span>${sim.stats.births}명</span>
+          <span class="k">죽음</span><span>${sim.stats.deaths}명</span>
+          <span class="k">거래</span><span>${sim.stats.trades}번</span>
+          <span class="k">전쟁</span><span>${sim.stats.wars}번</span>
+          <span class="k">돈</span><span>세상의 금화 ${Math.floor(gold)}개</span>
+          <span class="k">떠돌이</span><span>${loners}명</span>
+        </div>
+        <h4>부족 (${tribes.length})</h4>
+        ${tribes.length ? tribes.map((t) => `<div class="tribe-row" data-act="tribe" data-id="${t.id}"><span class="dot" style="background:${t.color}"></span><span class="n">${esc(t.name)}</span>${t.wars.size ? '<span class="war">전쟁</span>' : ''}<span class="muted">${t.members.length}명</span></div>`).join('') : '<p class="muted">아직 부족이 없습니다. 사람들이 모여 지내다 보면 부족이 생깁니다.</p>'}
+        <div class="row-btns"><button data-act="archive">기록관 (세상을 떠난 사람들)</button></div>`;
+    }
+
+    renderArchive() {
+      const sim = this.app.sim;
+      const list = sim.archive.slice().reverse().slice(0, 120);
+      return `
+        <h2>기록관</h2>
+        <p class="muted" style="margin:4px 0 10px">죽은 사람은 요약된 이야기만 남깁니다. 족장, 영웅, 장수한 사람은 오래 보존됩니다. (최대 ${G.CFG.ARCHIVE_CAP}명)</p>
+        <div class="row-btns" style="margin-bottom:8px"><button data-act="overview">세상으로</button></div>
+        ${list.length ? `<table class="mini">${list.map((r) => `<tr><td><span class="dot" style="background:${r.color}"></span> <span class="link" data-act="human" data-id="${r.id}">${esc(r.name)}</span>${r.notable ? ' ★' : ''}</td><td>${Math.max(0, r.born)}~${r.died}년 · ${esc(r.cause)}</td></tr>`).join('')}</table>` : '<p class="muted">아직 아무도 죽지 않았습니다.</p>'}`;
+    }
+
+    render(force) {
+      if (this.holding && !force) return;
+      const sel = this.app.selected;
+      let html;
+      if (sel && sel.type === 'human') {
+        if (!sel.h.alive) {
+          const rec = this.app.sim.archiveById.get(sel.h.id);
+          if (rec) { this.app.selected = { type: 'dead', rec }; html = this.renderDead(rec); }
+          else { this.app.selected = null; html = this.renderOverview(); }
+          this.app.follow = false;
+        } else html = this.renderHuman(sel.h);
+      } else if (sel && sel.type === 'dead') html = this.renderDead(sel.rec);
+      else if (sel && sel.type === 'tribe') {
+        if (!sel.t.alive) { this.app.selected = null; html = this.renderOverview(); }
+        else html = this.renderTribe(sel.t);
+      } else if (sel && sel.type === 'tile') html = this.renderTile(sel);
+      else html = this.view === 'archive' ? this.renderArchive() : this.renderOverview();
+      if (html !== this.lastHtml) {
+        const st = this.info.scrollTop;
+        this.info.innerHTML = html;
+        this.info.scrollTop = st;
+        this.lastHtml = html;
+      }
+    }
+
+    renderLog() {
+      const ev = this.app.sim.events;
+      const key = ev.length + ':' + (ev[0] ? ev[0].t + ev[0].y : '');
+      if (key === this.lastLogKey) return;
+      this.lastLogKey = key;
+      this.logEl.innerHTML = ev.slice(0, 60).map((e) =>
+        `<div class="ev" style="border-left-color:${e.c}" data-x="${e.x ?? ''}" data-y="${e.yy ?? ''}"><span class="yr">${e.y}년</span>${esc(e.t)}</div>`).join('');
+    }
+  }
+
+  G.UI = UI;
+})();

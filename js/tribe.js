@@ -1,0 +1,283 @@
+// 부족: 마을, 창고, 금고, 시장 가격, 직업 배분, 외교
+(function () {
+  const G = globalThis.G;
+  const { rand, pick, chance, clamp, josa } = G;
+  const J = G.JOB;
+  const BASE_PRICE = { food: 2, wood: 3, ore: 5 };
+
+  let NEXT_TRIBE = 1;
+
+  class Tribe {
+    constructor(sim, cx, cy) {
+      this.id = NEXT_TRIBE++;
+      this.name = G.makeTribeName(sim.usedTribeNames);
+      sim.usedTribeNames.add(this.name);
+      this.color = G.TRIBE_COLORS[(this.id - 1) % G.TRIBE_COLORS.length];
+      this.cx = cx; this.cy = cy;
+      this.members = [];
+      this.chief = null;
+      this.stock = { food: 10, wood: 4, ore: 0 };
+      this.treasury = 40;
+      this.houses = [];
+      this.temple = false;
+      this.founded = Math.floor(sim.year);
+      this.alive = true;
+      this.wars = new Set();
+      this.warStart = {};
+      this.chronicle = [];
+      this.births = 0; this.deaths = 0;
+      this.peak = 0;
+    }
+
+    log(sim, text, global = true) {
+      this.chronicle.push({ y: Math.floor(sim.year), t: text });
+      if (this.chronicle.length > 40) this.chronicle.shift();
+      if (global) sim.event(text, this.color, this.cx, this.cy);
+    }
+
+    add(sim, h) {
+      if (h.tribe === this) return;
+      if (h.tribe) h.tribe.remove(sim, h);
+      h.tribe = this;
+      this.members.push(h);
+      this.peak = Math.max(this.peak, this.members.length);
+      this.assignJob(sim, h);
+    }
+
+    remove(sim, h) {
+      const i = this.members.indexOf(h);
+      if (i >= 0) this.members.splice(i, 1);
+      if (h.tribe === this) h.tribe = null;
+      if (this.chief === h) this.chief = null;
+    }
+
+    adults() { return this.members.filter((m) => m.adult); }
+
+    // 수요(인구)와 공급(창고)으로 가격이 정해진다
+    price(r) {
+      const n = Math.max(1, this.members.length);
+      const target = r === 'food' ? n * 3 : r === 'wood' ? n * 1.5 + 6 : n * 0.8 + 3;
+      return clamp(BASE_PRICE[r] * (target + 5) / (this.stock[r] + 5), BASE_PRICE[r] * 0.3, BASE_PRICE[r] * 4);
+    }
+    reserve(r) { return r === 'food' ? this.members.length * 1.5 : 2; }
+
+    deposit(sim, h) {
+      const r = h.carry, amt = h.carryAmt;
+      if (!r || amt <= 0) return;
+      const pay = Math.min(Math.floor(this.price(r) * amt * 0.6), Math.floor(this.treasury));
+      this.stock[r] += amt; this.treasury -= pay; h.gold += pay;
+      h.carry = null; h.carryAmt = 0;
+      this.giveRation(h);
+    }
+
+    // 일하러 나가는 사람에게 도시락
+    giveRation(h) {
+      if (h.ration < 1 && this.stock.food > this.members.length * 2) { this.stock.food -= 1; h.ration = 1; }
+    }
+
+    // 배고픈 사람에게 식량 팔기 (아이·가난한 사람은 형편이 되면 나눠준다)
+    feed(sim, h) {
+      if (this.stock.food < 1) { h.happy -= 3; return false; }
+      const p = Math.ceil(this.price('food'));
+      const generous = this.chief && this.chief.has('너그러운');
+      if (h.job === J.CHILD) {
+        // 무료
+      } else if (h.gold >= p) {
+        h.gold -= p; this.treasury += p;
+      } else if (this.stock.food > this.members.length * (generous ? 0.5 : 1.5)) {
+        // 공동 배급
+      } else {
+        return false;
+      }
+      this.stock.food -= 1;
+      h.hunger = Math.max(0, h.hunger - 40);
+      this.giveRation(h);
+      if (h.hunger > 50 && this.stock.food >= 1 && (h.job === J.CHILD || h.gold >= p)) {
+        if (h.job !== J.CHILD) { h.gold -= p; this.treasury += p; }
+        this.stock.food -= 1; h.hunger = Math.max(0, h.hunger - 40);
+      }
+      return true;
+    }
+
+    // 부족 사정과 성격에 맞춰 직업 정하기
+    assignJob(sim, h) {
+      if (h.age < 14) { h.job = J.CHILD; return; }
+      if (h === this.chief) { h.job = J.CHIEF; return; }
+      const adults = this.members.filter((m) => m.adult && m !== this.chief && m !== h);
+      const n = adults.length + 1;
+      const cnt = {};
+      for (const m of adults) cnt[m.job] = (cnt[m.job] || 0) + 1;
+      const otherTribes = sim.tribes.filter((t) => t !== this && t.alive && t.members.length).length;
+      const mem = this.members.length;
+      const foodLow = this.stock.food < mem * 2;
+      const foodHigh = this.stock.food > mem * 8;
+      const woodHigh = this.stock.wood > mem * 2 + 30;
+      const want = {
+        [J.GATHER]: foodLow ? 0.55 : foodHigh ? 0.2 : 0.38,
+        [J.WOOD]: woodHigh ? 0.04 : 0.2,
+        [J.MINE]: this.hasOre ? 0.1 : 0,
+        [J.MERCHANT]: otherTribes && n >= 6 ? 0.1 : 0,
+        [J.PRIEST]: n >= 8 ? 0.06 : 0,
+        [J.WARRIOR]: this.wars.size ? 0.3 : n >= 8 ? 0.06 : 0,
+      };
+      const prefer = h.has('탐욕스러운') ? J.MERCHANT : h.has('신앙심 깊은') ? J.PRIEST : h.has('용감한') ? J.WARRIOR : null;
+      let job = null;
+      if (prefer && want[prefer] * n - (cnt[prefer] || 0) > 0) job = prefer;
+      if (!job) {
+        let bestGap = -1e9;
+        for (const j in want) {
+          const gap = want[j] * n - (cnt[j] || 0);
+          if (gap > bestGap) { bestGap = gap; job = j; }
+        }
+      }
+      const old = h.job;
+      h.job = job || J.GATHER;
+      if (old !== h.job) {
+        h.log(sim, `${josa(h.job, '이/가')} 되었다`);
+        if (h.job === J.MERCHANT && h.gold < 20 && this.treasury > 40) { this.treasury -= 20; h.gold += 20; }
+      }
+    }
+
+    electChief(sim) {
+      const cands = this.adults().filter((m) => m.age < 70);
+      if (!cands.length) { this.chief = null; return; }
+      const score = (m) => m.age * 0.5 + m.gold / 10 + m.kills * 3 + (m.has('야심찬') ? 10 : 0) + (m.has('용감한') ? 4 : 0);
+      cands.sort((a, b) => score(b) - score(a));
+      const c = cands[0];
+      this.chief = c;
+      c.job = J.CHIEF;
+      c.log(sim, `${this.name}의 족장이 되었다`);
+      this.log(sim, `${josa(c.name, '이/가')} ${this.name}의 새 족장이 되었습니다`);
+    }
+
+    buildHouse(sim) {
+      for (let k = 0; k < 20; k++) {
+        const a = Math.random() * Math.PI * 2;
+        const r = 1.5 + Math.sqrt(this.houses.length) * 1.3 + Math.random() * 1.5;
+        const x = this.cx + Math.cos(a) * r, y = this.cy + Math.sin(a) * r;
+        if (!sim.world.walkable(x, y)) continue;
+        if (this.houses.some((hs) => Math.hypot(hs.x - x, hs.y - y) < 1.1)) continue;
+        if (Math.hypot(x - this.cx, y - this.cy) < 1.3) continue;
+        this.houses.push({ x, y });
+        this.stock.wood -= 6;
+        return true;
+      }
+      return false;
+    }
+
+    // 식량이 풍부하고 다른 부족과 떨어진 터 찾기
+    findSite(sim, minR, maxR, minScore = 0) {
+      const w = sim.world;
+      let best = null, bestScore = minScore;
+      for (let k = 0; k < 150; k++) {
+        const a = Math.random() * Math.PI * 2, r = rand(minR, maxR);
+        const x = Math.floor(this.cx + Math.cos(a) * r) + 0.5, y = Math.floor(this.cy + Math.sin(a) * r) + 0.5;
+        if (!w.inb(Math.floor(x), Math.floor(y))) continue;
+        const ty = w.typeAt(x, y);
+        if (ty !== G.T.GRASS && ty !== G.T.FOREST) continue;
+        if (sim.tribes.some((o) => o !== this && o.alive && G.dist(o.cx, o.cy, x, y) < 15)) continue;
+        if (!w.findPath(this.cx, this.cy, x, y, 8000)) continue;
+        const score = w.foodAround(x, y, 7) - r * 0.5;
+        if (score > bestScore) { bestScore = score; best = { x, y }; }
+      }
+      return best;
+    }
+
+    yearly(sim) {
+      this.members = this.members.filter((m) => m.alive && m.tribe === this);
+      if (!this.members.length) { sim.destroyTribe(this, '마지막 한 사람까지 사라졌습니다'); return; }
+      if (!this.chief || !this.chief.alive || this.chief.tribe !== this) this.electChief(sim);
+
+      // 집 짓기
+      let built = 0;
+      while (this.houses.length * 4 < this.members.length + 2 && this.stock.wood >= 6 && built < 3) {
+        if (!this.buildHouse(sim)) break;
+        built++;
+        if ([5, 10, 20, 30].includes(this.houses.length)) this.log(sim, `${this.name}의 마을에 집이 ${this.houses.length}채가 되었습니다`);
+      }
+
+      // 신전
+      const avgFaith = this.members.reduce((s, m) => s + m.faith, 0) / this.members.length;
+      if (!this.temple && avgFaith > 50 && this.stock.wood >= 15 && this.members.length >= 8) {
+        this.temple = true; this.stock.wood -= 15;
+        this.log(sim, `${josa(this.name, '이/가')} 신을 모시는 신전을 세웠습니다`);
+      }
+
+      // 식량은 해마다 조금씩 상한다
+      this.stock.food = Math.floor(this.stock.food * 0.85);
+
+      // 광석으로 금화 만들기
+      if (this.stock.ore >= 4) {
+        const m = Math.floor(this.stock.ore * 0.5);
+        this.stock.ore -= m; this.treasury += m * 4;
+      }
+      // 장인과 농사에서 나오는 기본 수입
+      this.treasury += this.members.length * 2;
+      // 상인에게 밑천
+      for (const m of this.members) {
+        if (m.job === J.MERCHANT && m.gold < 15 && this.treasury > 30) { this.treasury -= 20; m.gold += 20; }
+      }
+      // 부자에게 세금
+      for (const m of this.members) {
+        if (m.gold > 60) { const tax = Math.floor(m.gold * 0.1); m.gold -= tax; this.treasury += tax; }
+      }
+
+      // 기근
+      if (this.stock.food < 1 && this.members.length >= 6 && chance(0.4)) this.log(sim, `${this.name}에 기근이 들었습니다`);
+
+      // 직업 재조정 (일부만)
+      for (const m of this.members) {
+        if (m.adult && m !== this.chief && chance(0.15)) this.assignJob(sim, m);
+      }
+
+      // 외교
+      for (const o of sim.tribes) {
+        if (o === this || !o.alive || o.id < this.id) continue;
+        const d = G.dist(this.cx, this.cy, o.cx, o.cy);
+        let delta = (d < 30 ? -3 : 0) + rand(-3, 3);
+        for (const c of [this.chief, o.chief]) {
+          if (!c) continue;
+          if (c.has('야심찬')) delta -= 3;
+          if (c.has('용감한')) delta -= 1;
+          if (c.has('너그러운')) delta += 3;
+          if (c.has('겁많은')) delta += 2;
+        }
+        if (this.stock.food < this.members.length) delta -= 2;
+        sim.changeRel(this, o, delta);
+        const rel = sim.getRel(this, o);
+        const atWar = this.wars.has(o.id);
+        if (!atWar && rel < -60 && this.members.length >= 5 && o.members.length >= 5 && chance(0.4)) {
+          sim.declareWar(this, o);
+        }
+      }
+      for (const id of [...this.wars]) {
+        const o = sim.tribeById(id);
+        if (!o || !o.alive) { this.wars.delete(id); continue; }
+        const years = sim.year - this.warStart[id];
+        if (years >= 3 || this.members.length < 4 || o.members.length < 4 || (years >= 1 && chance(0.35))) sim.makePeace(this, o);
+      }
+
+      this.hasOre = !!sim.world.findResource(this.cx, this.cy, 'ore', 20);
+
+      // 기근이 심하면 더 비옥한 땅으로 이주
+      const around = sim.world.foodAround(this.cx, this.cy, 7);
+      if (this.stock.food < this.members.length && around < this.members.length * 4 && chance(0.6)) {
+        const site = this.findSite(sim, 8, 35, around * 1.5);
+        if (site) {
+          this.cx = site.x; this.cy = site.y;
+          this.stock.wood += this.houses.length * 3; this.houses = []; this.temple = false;
+          this.log(sim, `${josa(this.name, '이/가')} 굶주림을 피해 새 땅으로 이주했습니다`);
+          for (const m of this.members) {
+            m.goTo(sim, site.x + rand(-2, 2), site.y + rand(-2, 2), { kind: 'wander' });
+            if (m.adult) m.log(sim, '부족과 함께 새 땅으로 이주했다');
+          }
+        }
+      }
+
+      // 분열
+      if (this.members.length > 32 && chance(0.35)) sim.splitTribe(this);
+    }
+  }
+
+  G.Tribe = Tribe;
+})();
