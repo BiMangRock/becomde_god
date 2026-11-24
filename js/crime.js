@@ -65,7 +65,11 @@
     for (const w of ws) {
       // 가까운 사람은 감싸 주기도 한다
       const r = G.Social.peek(w, crim);
-      if (r && (r.v >= 70 || w.partner === crim || w.lover === crim) && !w.has('정직한') && chance(0.7)) continue;
+      if (r && (r.v >= 70 || w.partner === crim || w.lover === crim) && !w.has('정직한') && chance(0.7)) {
+        G.Mind2.react(sim, w, { k: type, a: crim.id, an: crim.name, b: null, bn: victim, how: 'saw' }, crim, null, { hidden: true }); // 보았지만 감싸 준다
+        w.log(sim, `${josa(crim.name, '이/가')} ${josa(type, '을/를')} 저지르는 것을 보았지만 모른 척했다`);
+        continue;
+      }
       let p = w.job === J.GUARD ? 0.9 : 0.45;
       if (crim.has('교활한')) p *= 0.6;
       if (crim.crimeSkill) p *= 1 - crim.crimeSkill / 120;
@@ -76,6 +80,7 @@
       G.Social.bump(sim, w, crim, lethal ? -50 : -15);
       if (lethal) { G.Social.addMood(sim, w, 'witnessMurder'); G.Mind.trauma(sim, w, 0.3, '살인을 목격하고'); }
       w.log(sim, `${josa(crim.name, '이/가')} ${victim ? victim + '에게 ' : ''}${josa(type, '을/를')} 저지르는 것을 보았다`);
+      G.Mind2.react(sim, w, { k: type, a: crim.id, an: crim.name, b: null, bn: victim, how: 'saw' }, crim, null, {});
       w.say('!', 90);
     }
     return seen;

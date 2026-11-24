@@ -124,6 +124,7 @@
         ${this.mindBlock(h)}
         ${this.relBlock(h)}
         ${this.crimeBlock(h)}
+        ${this.memoryBlock(h)}
         <h4>재산과 가족</h4>
         <div class="kv">
           <span class="k">금화</span><span>${Math.floor(h.gold)}개${h.carry ? ` · ${G.RES_NAME[h.carry] || ''} ${h.carryAmt}개 운반 중` : ''}</span>
@@ -148,7 +149,9 @@
         const col = M.v >= 0 ? '#8fd18f' : '#ff8a80';
         const left = Math.max(0, m.until - sim.year);
         const leftTxt = left >= 1 ? `${left.toFixed(1)}년` : `${Math.ceil(left * 12)}개월`;
-        return `<span class="chip" title="${leftTxt} 남음"><b style="color:${col}">${M.v > 0 ? '+' : ''}${M.v}</b> ${esc(M.t)}</span>`;
+        const n = m.n || 1, v = Math.round(M.v * G.Mind2.weight(n));
+        const life = h.life && h.life[m.k] > 1 ? ` · 평생 ${h.life[m.k]}번` : '';
+        return `<span class="chip" data-tip="${esc(`${M.t}\n${leftTxt} 남음${n > 1 ? `\n· 잇달아 ${n}번 겪어 무게가 ${G.Mind2.weight(n).toFixed(1)}배` : ''}${life ? `\n·${life} 겪음` : ''}`)}"><b style="color:${col}">${v > 0 ? '+' : ''}${v}</b> ${esc(M.t)}${n > 1 ? ` <b>×${n}</b>` : ''}</span>`;
       }).join('');
       return `<h4>기분 · <span style="color:${lab.c}">${lab.t}</span> (${Math.round(h.happy)})</h4><div>${chips || '<span class="muted">특별한 일 없음</span>'}</div>`;
     }
@@ -178,6 +181,19 @@
         if (y + h > window.innerHeight - 8) y = Math.max(8, window.innerHeight - h - 8);
         tip.style.left = x + 'px'; tip.style.top = y + 'px';
       });
+    }
+
+    // 본 것과 들은 것
+    memoryBlock(h) {
+      if (!h.memories || !h.memories.length) return '';
+      const ACT = { secret: ['비밀로 묻어 둠', '#9fc3ff'], gossip: ['소문 냄', '#ffb070'], told: ['당사자에게 알림', '#8fe0a0'], blackmail: ['협박에 씀', '#ff8a80'], quiet: ['기억만 함', '#a8b3c4'] };
+      const what = (m) => m.k === '바람' ? `${m.an}이(가) ${m.bn || '누군가'}와(과) 몰래 만나는 것` : m.k === 'hero' ? `${m.an}이(가) 불을 끄는 것` : `${m.an}이(가) ${m.bn ? m.bn + '에게 ' : ''}${m.k}을(를) 저지르는 것`;
+      const list = h.memories.slice().sort((a, b) => b.at - a.at).map((m) => {
+        const [t, c] = ACT[m.act] || ACT.quiet;
+        const src = m.how === 'heard' ? `${m.from}에게서 ${m.ex ? '부풀려진 ' : ''}소문으로 들음` : '직접 봄';
+        return `<li><span class="yr">${m.y}년</span>${esc(what(m))}${m.n > 1 ? ` ×${m.n}` : ''} <span class="muted">· ${esc(src)}</span> <span style="color:${c}">· ${t}</span></li>`;
+      }).join('');
+      return `<h4>기억 (본 것과 들은 것)</h4><ul class="story">${list}</ul>`;
     }
 
     traitTip(x) {

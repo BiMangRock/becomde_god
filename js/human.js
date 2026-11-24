@@ -213,6 +213,7 @@
 
       // 3) 아이
       if (this.job === J.CHILD) {
+        if (G.Mind2.whim(sim, this)) return;
         const mom = this.parents.length ? sim.byId.get(this.parents[0].id) : null;
         if (mom && mom.alive && this.age < 8 && (!t || G.dist(mom.x, mom.y, t.cx, t.cy) < 8)) return this.wander(sim, mom.x, mom.y, 2);
         if (t) return this.wander(sim, t.cx, t.cy, 4);
@@ -237,6 +238,9 @@
         }
         return this.wander(sim, camp.x, camp.y, 5);
       }
+
+      // 가끔은 정해진 판단 대신 엉뚱한 행동을 한다 (입실론)
+      if (G.Mind2.whim(sim, this)) return;
 
       // 5) 여가: 데이트, 친구 찾아가기
       if (this.adult && this.hunger < 40) {

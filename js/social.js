@@ -73,8 +73,14 @@
     if (!m) return;
     const until = sim.year + m.d * mult;
     const ex = h.moodlets.find((x) => x.k === key);
-    if (ex) { ex.until = Math.max(ex.until, until); return; }
-    h.moodlets.push({ k: key, until });
+    // 같은 일이 되풀이되면 횟수가 쌓여 무게가 커진다 (mind2.js의 STACK). 평생 겪은 횟수도 기억한다
+    if (m.stack) { h.life = h.life || {}; h.life[key] = (h.life[key] || 0) + 1; }
+    if (ex) {
+      if (m.stack && sim.year - (ex.at || 0) > 0.02) { ex.n = (ex.n || 1) + 1; ex.at = sim.year; }
+      ex.until = Math.max(ex.until, until);
+      return;
+    }
+    h.moodlets.push({ k: key, until, n: 1, at: sim.year });
     if (h.moodlets.length > MOOD_CAP) {
       // 가장 약한 것부터 지운다
       h.moodlets.sort((a, b) => Math.abs(MOODS[b.k].v) - Math.abs(MOODS[a.k].v));
@@ -86,7 +92,7 @@
   S.updateMood = (sim, h) => {
     h.moodlets = h.moodlets.filter((m) => m.until > sim.year);
     let v = 50;
-    for (const m of h.moodlets) v += MOODS[m.k].v;
+    for (const m of h.moodlets) v += MOODS[m.k].v * (G.Mind2 ? G.Mind2.weight(m.n || 1) : 1);
     if (h.hunger > 80) v -= 15; else if (h.hunger > 55) v -= 5;
     if (h.health < 50) v -= 10;
     if (h.partner && h.partner.alive) v += 6;
@@ -222,6 +228,7 @@
       G.Mind.tick(sim, h);
       if (h.alive) G.Crime.tick(sim, h);
       if (h.alive) G.Migrate.personTick(sim, h);
+      if (h.alive) G.Mind2.tick(sim, h);
       if (h.alive) G.Persona.tick(sim, h);
     }
     S.couples(sim);
@@ -238,7 +245,7 @@
       G.Blood.witness(sim, h);
       if (h.age < 3 || h.state === 'fight' || h.state === 'pray' || h.state === 'sleep' || h.held) continue;
       // 불안증·우울증이 있으면 사람을 덜 만난다
-      if (h.mind && (h.mind.c === '불안증' || h.mind.c === '우울증') && chance(0.4)) continue;
+      if (h.mind && (h.mind.c === '불안증' || h.mind.c === '우울증' || h.mind.c === '조현병' || h.mind.c === '공황장애') && chance(0.4)) continue;
       if (!chance(k)) continue;
       S.ripen(sim, h);
       // 외향적일수록 사람을 자주 만난다
@@ -649,6 +656,8 @@
     if (!o || !o.alive || G.dist(h.x, h.y, o.x, o.y) > 2.5) return;
     h.say('♥', 140); o.say('♥', 140);
     S.bump(sim, h, o, 4, 6); S.bump(sim, o, h, 4, 6);
+    // 몰래 만나는 걸 누가 볼 수도 있다
+    if (h.affair === o.id) G.Mind2.witness(sim, h.x, h.y, '바람', h, o);
     S.addMood(sim, h, 'date'); S.addMood(sim, o, 'date');
     if (sim.year - (h.lastDateLog || -99) > 2) {
       h.lastDateLog = sim.year; o.lastDateLog = sim.year;

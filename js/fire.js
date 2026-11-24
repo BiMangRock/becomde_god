@@ -224,6 +224,7 @@
       if (h.doused === 1 || h.doused % 10 === 0) h.log(sim, `물을 길어 와 불을 껐다${h.doused > 1 ? ` (${h.doused}번째)` : ''}`);
       sim.near(h.x, h.y, 8, (o) => { if (o !== h) { G.Mind.adj(sim, o, h, { respect: 3, trust: 2 }); } });
       G.Social.addMood(sim, h, 'hero');
+      if (h.doused === 1 || h.doused % 5 === 0) G.Mind2.witness(sim, h.x, h.y, 'hero', h, null);
     }
   };
 })();

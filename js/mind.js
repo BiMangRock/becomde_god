@@ -55,7 +55,7 @@
       if (r.grudge) r.grudge = Math.max(0, r.grudge - (h.has('냉정한') ? 0.3 : h.has('너그러운') ? 2 : 1));
       if (r.jealousy) r.jealousy = Math.max(0, r.jealousy - 0.5);
     }
-    if (kind === 'chat') M.adj(sim, h, o, { trust: 1 });
+    if (kind === 'chat') { M.adj(sim, h, o, { trust: 1 }); G.Mind2.gossip(sim, h, o); }
     if (kind === 'gift') M.adj(sim, h, o, { trust: 5 });
     if (kind === 'comfort') M.adj(sim, h, o, { trust: 6 });
     if (kind === 'argue') M.adj(sim, h, o, { trust: -3, grudge: 7 });
