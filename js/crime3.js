@@ -1391,6 +1391,7 @@
     sim.effects.push({ kind: 'beam', x: h.x, y: h.y, age: 0, ttl: 70 });
     const see = (fn) => sim.near(h.x, h.y, 10, (o) => { if (o !== h) { o.faith = Math.min(100, o.faith + 10); o.miracles++; fn && fn(o); } });
     // 누명을 쓴 사람: 신탁으로 누명을 벗긴다
+    G.Faith.onPower(sim, 'judgment', h.x, h.y);
     const fake = h.crimes.find((c) => c.fake && !c.revealed);
     if (fake) {
       fake.revealed = true; fake.known = false; h.wanted = false;

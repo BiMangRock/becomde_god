@@ -39,6 +39,7 @@
     if (h.drunk > 0) u *= 1.5;
     if (G.curSim && G.curSim.isNight()) u *= 1.4; // 밤에는 보는 눈이 적다
     if (G.Crime3) u *= G.Crime3.urgeMult(h);
+    if (G.Faith) u *= G.Faith.urgeMult(h); // 심판·두려움의 신을 섬기면 죄를 덜 짓는다
     return u;
   };
 

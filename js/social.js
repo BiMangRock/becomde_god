@@ -229,6 +229,7 @@
       if (h.alive) G.Crime.tick(sim, h);
       if (h.alive) G.Migrate.personTick(sim, h);
       if (h.alive) G.Mind2.tick(sim, h);
+      if (h.alive) G.Faith.personTick(sim, h);
       if (h.alive) G.Persona.tick(sim, h);
     }
     S.couples(sim);
@@ -569,6 +570,7 @@
     if (sim.season === 0) p *= 1.2;
     if (mom.happy > 65) p *= 1.3;
     if (S.hasMood(mom, 'fertile')) p *= 3;
+    p *= G.Faith.fertMult(mom);
     if (chance(p)) S.conceive(sim, mom, dad);
   };
 

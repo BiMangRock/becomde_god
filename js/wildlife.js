@@ -204,36 +204,11 @@
 
   // ---------------- 해마다: 번식, 가축 생산과 도축 ----------------
   W.yearly = (sim) => {
-    const sc = W.areaScale(sim);
-    for (const k in W.KINDS) {
-      const list = sim.animals.filter((a) => a.alive && a.kind === k && !a.tame);
-      const cap = Math.max(2, Math.round(W.KINDS[k].cap * sc));
-      if (list.length < 2 || list.length >= cap) continue;
-      const rate = k === 'tiger' || k === 'bear' ? 0.1 : k === 'wolf' ? 0.15 : 0.3;
-      const n = Math.max(1, Math.floor(list.length * rate));
-      for (let i = 0; i < n && list.length + i < cap; i++) {
-        const p = pick(list);
-        const x = p.x + rand(-2, 2), y = p.y + rand(-2, 2);
-        if (goodTile(sim.world, x, y)) W.spawn(sim, k, x, y);
-      }
-    }
+    // 번식은 nature.js에서: 짝짓기 → 임신 → 출산 → 새끼가 어미를 따라다니며 자람
     for (const t of sim.tribes) {
       if (!t.alive) continue;
       const herd = sim.animals.filter((a) => a.alive && a.tame === t.id);
       if (!herd.length) continue;
-      const cap = Math.max(4, Math.round(t.members.length * 0.8));
-      const byKind = {};
-      for (const a of herd) (byKind[a.kind] = byKind[a.kind] || []).push(a);
-      // 번식
-      let born = 0;
-      for (const k in byKind) {
-        if (byKind[k].length >= 2 && herd.length + born < cap && chance(0.6)) {
-          const p = byKind[k][0];
-          const b = W.spawn(sim, k, p.x + rand(-0.5, 0.5), p.y + rand(-0.5, 0.5), t.id);
-          if (k === 'wolf') b.pet = pick(DOG_NAMES);
-          born++;
-        }
-      }
       // 기본 생산 (목동이 없어도 조금은)
       W.produce(sim, t, 0.5);
       // 식량이 모자라면 도축

@@ -200,6 +200,8 @@
       G.Crime.investigate(this);
       G.Crime3.social(this);
       G.Migrate.social(this);
+      G.Nature.animalTick(this);
+      G.Nature.terrainTick(this);
       this.tribelessGathering();
       if (this.humans.length > this.stats.maxPop) this.stats.maxPop = this.humans.length;
       const ms = [20, 50, 100, 200, 400, 800];
@@ -381,6 +383,8 @@
       for (const t of this.tribes) if (t.alive) t.yearly(this, 'life');
       G.Crime3.yearly(this);
       G.Migrate.yearly(this);
+      G.Nature.yearly(this);
+      for (const t of this.tribes) G.Faith.tribeYearly(this, t);
       if (!this.drought && this.year > 3 && chance(0.06)) {
         this.drought = randi(1, 2);
         this.event('가뭄이 시작되었습니다. 땅이 메마릅니다', '#e0a040');
@@ -433,7 +437,7 @@
       }
       const t = h.tribe;
       const wasChief = t && t.chief === h;
-      if (t) { t.remove(this, h); t.deaths++; }
+      if (t) { t.remove(this, h); t.deaths++; G.Faith.funeral(this, h, t); }
       this.stats.deaths++;
       this.byId.delete(h.id);
       // 기록관에 요약만 남긴다 (큰 객체는 버려서 메모리를 아낀다)
@@ -557,6 +561,7 @@
       }
       this.faith -= P.cost;
       G.Crime3.onPower(this, kind, x, y);
+      G.Faith.onPower(this, kind, x, y);
       return { ok: true };
     }
 

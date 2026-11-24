@@ -156,6 +156,8 @@
     leader.job = J.CHIEF;
     const from = sim.tribeById(k.from);
     if (from) sim.setRel(from, t, 25); // 같은 뿌리라 처음엔 사이가 좋다
+    G.Faith.inherit(sim, from, t, k);
+    if (k.god && from) sim.setRel(from, t, -10); // 교리가 갈라져 떠났으면 사이가 나쁘다
     t.origin = k.fromName;
     const days = Math.round((sim.year - k.since) * G.CFG.DAYS);
     leader.log(sim, `${days}일의 여정 끝에 ${josa(t.name, '을/를')} 세웠다`);
@@ -545,6 +547,7 @@
     sim.near(h.x, h.y, 8, (o) => { if (o !== h) { o.faith = Math.min(100, o.faith + 5); M.adj(sim, o, h, { respect: 20 }); } });
     sim.effects.push({ kind: 'beam', x: h.x, y: h.y, age: 0, ttl: 70 });
     sim.event(`${josa(h.name, '이/가')} 꿈속에서 신의 계시를 받았습니다`, '#f5d76e', h.x, h.y);
+    G.Faith.onPower(sim, 'revelation', h.x, h.y);
     return { ok: true, msg: `${h.name}에게 계시를 내렸습니다 (지식 +${gain})` };
   };
   // 짐승 무리: 사슴·멧돼지·산양 무리를 불러온다

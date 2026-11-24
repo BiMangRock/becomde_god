@@ -235,6 +235,7 @@
     // 계절이 바뀔 때: 가을엔 추수 축제, 봄엔 봄맞이
     seasonal(sim, season) {
       if (!this.members.length || this.bandit) return;
+      if (chance(0.6)) G.Faith.rite(sim, this); // 계절 제사
       if (season === 2 || season === 0) {
         const avgHappy = this.members.reduce((s, m) => s + m.happy, 0) / this.members.length;
         const p = season === 2 ? 0.55 : 0.25;
@@ -373,10 +374,11 @@
         }
         if (this.stock.food < this.members.length) delta -= 2;
         delta += G.Crime3.atrocityPenalty(this, o, sim.year); // 학살의 기억
+        delta += G.Faith.kinship(this, o); // 같은 믿음
         sim.changeRel(this, o, delta);
         const rel = sim.getRel(this, o);
         const atWar = this.wars.has(o.id);
-        if (!atWar && rel < -60 && this.members.length >= 5 && o.members.length >= 5 && chance(0.4)) {
+        if (!atWar && rel < -60 && this.members.length >= 5 && o.members.length >= 5 && chance(0.4) && !G.Faith.forbidWar(sim, this, o)) {
           sim.declareWar(this, o);
         }
       }

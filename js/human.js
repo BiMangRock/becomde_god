@@ -126,6 +126,7 @@
     growUp(sim) {
       this.job = J.NONE;
       this.log(sim, '어른이 되었다');
+      G.Faith.comingOfAge(sim, this);
       if (this.tribe) this.tribe.assignJob(sim, this);
     }
 
@@ -378,6 +379,7 @@
         case 'sleep': this.state = sim.sleepTime() ? 'sleep' : 'idle'; break;
         case 'trade-sell': this.sellGoods(sim, k.to); break;
         case 'pray': this.startPray(sim, k.why); return;
+        case 'pilgrim': this.task = null; G.Faith.onPilgrim(sim, this, k); return;
         case 'raid': this.raid(sim, k.to); break;
         case 'date': this.task = null; G.Social.onDateArrive(sim, this, k); return;
         case 'party': this.state = 'party'; this.timer = randi(180, 300); this.say('♪', 200); break;

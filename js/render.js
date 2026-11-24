@@ -88,6 +88,7 @@
       for (const t of this.sim.tribes) if (t.alive) this.drawPen(t);
       this.drawTribes();
       this.drawHermits();
+      this.drawSacred();
       this.drawTreks();
       this.drawAnimals();
       this.drawHumans();
@@ -190,8 +191,10 @@
           const [jx, jy] = this.toScreen(t.jail.x, t.jail.y);
           this.drawJail(jx, jy, s);
         }
+        // 제단, 묘지, 토템
+        this.drawFaithSites(t, s);
         // 신전 / 모닥불
-        if (t.temple) this.drawTemple(cx, cy - s * 0.2, s, t.color);
+        if (t.temple) this.drawTemple(cx, cy - s * 0.2, t.greatTemple ? s * 1.6 : s, t.color);
         else this.drawFire(cx, cy, s);
         if (this.selected && this.selected.type === 'tribe' && this.selected.t === t) {
           ctx.strokeStyle = '#fff'; ctx.lineWidth = 2;
@@ -946,7 +949,7 @@
           if (W_BEAST(a)) { ctx.strokeStyle = '#ff5050'; ctx.lineWidth = 1; ctx.strokeRect(x - q / 2 - 1, y - q / 2 - 1, q + 2, q + 2); }
           continue;
         }
-        const u = s * 0.05 * K.size, d = a.dir;
+        const u = s * 0.05 * K.size * G.Nature.scale(this.sim, a), d = a.dir; // 새끼는 작게
         const sw = a.moving ? Math.sin(a.walk * 3) * 1.6 * u : 0;
         const legH = K.legs;
         ctx.fillStyle = 'rgba(0,0,0,0.2)';
@@ -960,6 +963,7 @@
         // 몸
         const by = y - (legH + 1.8) * u;
         ctx.fillStyle = K.color;
+        if (a.preg) { ctx.beginPath(); ctx.ellipse(x, by + 2.4 * u, 2.6 * u, 1.7 * u, 0, 0, 7); ctx.fill(); } // 새끼를 밴 배
         if (a.kind === 'sheep') {
           for (let k = -2; k <= 2; k++) { ctx.beginPath(); ctx.arc(x + k * 1.6 * u, by + (k % 2) * 0.5 * u, 2.2 * u, 0, 7); ctx.fill(); }
         } else if (a.kind === 'fowl') {
@@ -1089,6 +1093,51 @@
         const tw = ctx.measureText(label).width;
         ctx.fillStyle = 'rgba(0,0,0,0.55)'; ctx.fillRect(ax - tw / 2 - 4, ay - (s >= 10 ? s * 1.6 : 14) - 12, tw + 8, 15);
         ctx.fillStyle = '#fff'; ctx.fillText(label, ax, ay - (s >= 10 ? s * 1.6 : 14));
+      }
+    }
+
+    // 제단(돌판과 불), 묘지(묘비), 토템(기둥)
+    drawFaithSites(t, s) {
+      const ctx = this.ctx;
+      if (s < 5) return;
+      if (t.altar) {
+        const [x, y] = this.toScreen(t.altar.x, t.altar.y);
+        ctx.fillStyle = '#8d8a80'; ctx.fillRect(x - s * 0.3, y - s * 0.2, s * 0.6, s * 0.2);
+        ctx.fillStyle = '#a7a49a'; ctx.fillRect(x - s * 0.35, y - s * 0.28, s * 0.7, s * 0.1);
+        const f = Math.sin(this.frame * 0.3 + t.id) * 0.04;
+        ctx.fillStyle = '#ff9a3c'; ctx.beginPath(); ctx.moveTo(x - s * 0.08, y - s * 0.28); ctx.quadraticCurveTo(x, y - s * (0.5 + f), x + s * 0.08, y - s * 0.28); ctx.fill();
+      }
+      if (t.graveyard) {
+        const g = t.graveyard;
+        const n = Math.min(12, g.graves || 1);
+        for (let k = 0; k < n; k++) {
+          const [x, y] = this.toScreen(g.x + (k % 4) * 0.45 - 0.7, g.y + Math.floor(k / 4) * 0.45 - 0.3);
+          ctx.fillStyle = '#a9a69c'; ctx.beginPath(); ctx.arc(x, y - s * 0.14, s * 0.09, Math.PI, 0); ctx.fill(); ctx.fillRect(x - s * 0.09, y - s * 0.14, s * 0.18, s * 0.14);
+        }
+        if (s >= 22) { const [x, y] = this.toScreen(g.x, g.y + 1.2); ctx.font = '10px sans-serif'; ctx.textAlign = 'center'; ctx.fillStyle = 'rgba(230,230,230,0.8)'; ctx.fillText('묘지', x, y); }
+      }
+      if (t.totem) {
+        const [x, y] = this.toScreen(t.totem.x, t.totem.y);
+        ctx.fillStyle = '#6b4a2b'; ctx.fillRect(x - s * 0.07, y - s * 1.1, s * 0.14, s * 1.1);
+        ctx.fillStyle = t.color; ctx.fillRect(x - s * 0.2, y - s * 1.2, s * 0.4, s * 0.25);
+        ctx.fillStyle = '#f4e3b0'; ctx.fillRect(x - s * 0.13, y - s * 1.12, s * 0.07, s * 0.07); ctx.fillRect(x + s * 0.06, y - s * 1.12, s * 0.07, s * 0.07);
+        ctx.fillStyle = t.color; ctx.fillRect(x - s * 0.25, y - s * 0.75, s * 0.5, s * 0.08);
+      }
+    }
+
+    // 성지: 빛나는 돌 원과 이름
+    drawSacred() {
+      const ctx = this.ctx, s = this.cam.s;
+      for (const site of this.sim.sacred || []) {
+        const [x, y] = this.toScreen(site.x, site.y);
+        const r = Math.max(4, s * 0.9);
+        const glow = 0.25 + 0.15 * Math.sin(this.frame * 0.05 + site.x);
+        ctx.fillStyle = `rgba(255,236,160,${glow})`; ctx.beginPath(); ctx.arc(x, y, r * 1.3, 0, 7); ctx.fill();
+        if (s >= 6) {
+          ctx.fillStyle = '#d8d2c0';
+          for (let k = 0; k < 6; k++) { const a = k / 6 * Math.PI * 2; ctx.fillRect(x + Math.cos(a) * r - s * 0.06, y + Math.sin(a) * r * 0.6 - s * 0.22, s * 0.12, s * 0.22); }
+        }
+        if (s >= 10) { ctx.font = 'bold 11px sans-serif'; ctx.textAlign = 'center'; ctx.fillStyle = '#ffe9a8'; ctx.fillText(`✦ ${site.name}`, x, y + r + 12); }
       }
     }
 

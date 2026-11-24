@@ -323,7 +323,14 @@
           <span class="k">금고</span><span>금화 ${Math.floor(t.treasury)}개</span>
           <span class="k">출생/사망</span><span>${t.births} / ${t.deaths}</span>
           ${t.bandit ? '<span class="k">정체</span><span style="color:#ff8a80">무법자들의 도적단</span>' : ''}
-          <span class="k">법</span><span>${esc(G.Crime3.lawText(t.law))}</span>${t.sacrifice ? '<span class="k">제물</span><span style="color:#ff7050">가뭄을 끝내려 제물을 바치려 합니다 (비나 축복으로 막을 수 있음)</span>' : ''}${t.dread > sim.year ? '<span class="k">공포</span><span style="color:#ff8a80">흉흉한 일이 이어져 사람들이 밤길을 두려워함</span>' : ''}
+          <span class="k">법</span><span>${esc(G.Crime3.lawText(t.law))}</span>
+          <span class="k">신앙</span><span>${(() => {
+            const g = G.Faith.godOf(t);
+            const fac = [t.altar && '제단', t.temple && (t.greatTemple ? '대신전' : '신전'), t.graveyard && `묘지(무덤 ${t.graveyard.graves || 0})`, t.totem && `${t.totem.animal} 토템`].filter(Boolean).join(' · ') || '시설 없음';
+            const src = t.faithFrom && t.faithFrom !== t.id ? sim.tribes.find((o) => o.id === t.faithFrom) : null;
+            const site = (sim.sacred || []).filter((x) => x.tid === t.id).map((x) => x.name).join(', ');
+            return `${g ? `<span data-tip="${esc(g.name + '\n' + g.desc)}" style="color:#ffe9a8">${esc(g.name)}</span>` : '<span class="muted">아직 신의 모습을 모름</span>'} · ${esc(fac)}${src ? ` · ${esc(src.name)}에서 전해진 믿음` : ''}${site ? ` · 성지: ${esc(site)}` : ''}`;
+          })()}</span>${t.sacrifice ? '<span class="k">제물</span><span style="color:#ff7050">가뭄을 끝내려 제물을 바치려 합니다 (비나 축복으로 막을 수 있음)</span>' : ''}${t.dread > sim.year ? '<span class="k">공포</span><span style="color:#ff8a80">흉흉한 일이 이어져 사람들이 밤길을 두려워함</span>' : ''}
           <span class="k">도구</span><span>${t.tools}개 (일 효율 +${Math.round(t.toolBonus() * 100)}%) · 밭 ${t.farmCount}칸</span>
           <span class="k">치안</span><span>경비병 ${t.members.filter((m) => m.job === G.JOB.GUARD).length}명 · ${t.jail ? '감옥 있음' : '감옥 없음'}${t.crimeHeat > 1 ? ' · <span style="color:#ff8a80">범죄 잦음</span>' : ''}</span>
           <span class="k">분위기</span><span>${(() => { const a = t.members.reduce((s, m) => s + m.happy, 0) / Math.max(1, t.members.length); return a >= 65 ? '활기참' : a >= 50 ? '평온함' : a >= 35 ? '침울함' : '험악함'; })()} · 부부 ${Math.floor(t.members.filter((m) => m.partner && m.partner.alive).length / 2)}쌍${t.lastFestival ? ` · 마지막 축제 ${Math.floor(t.lastFestival)}년` : ''}</span>
@@ -403,6 +410,8 @@
           <span class="k">사법</span><span>체포 ${sim.stats.arrests || 0} · 수감 중 ${sim.humans.filter((h) => h.jail).length} · 탈옥 ${sim.stats.escapes || 0} · 추방 ${sim.stats.exiles || 0}</span>
           <span class="k">무법자</span><span>${sim.humans.filter((h) => h.alive && h.outlaw).length}명 · 도적단 ${tribes.filter((t) => t.bandit).length}개 · 노예 ${sim.humans.filter((h) => h.alive && h.enslaved).length}명</span>
           <span class="k">이동</span><span>이주 무리 ${(sim.treks || []).length}개 (지금까지 ${sim.stats.treks || 0}번) · 부족 병합 ${sim.stats.merges || 0}번 · 홀로 사는 사람 ${sim.humans.filter((h) => h.alive && h.hermit).length}명 · 길 잃은 사람 ${sim.humans.filter((h) => h.alive && h.lost).length}명 · 납치 ${sim.stats.abductions || 0}건</span>
+          <span class="k">신앙</span><span>성지 ${(sim.sacred || []).length}곳${(sim.sacred || []).length ? ` (${(sim.sacred || []).map((x) => esc(x.name)).join(', ')})` : ''} · 순례 ${sim.stats.pilgrims || 0}번 · 대신전 ${tribes.filter((t) => t.greatTemple).length}곳</span>
+          <span class="k">자연</span><span>동물 출생 ${sim.stats.animalBirths || 0} · 새끼 밴 동물 ${sim.animals.filter((a) => a.alive && a.preg).length} · 깎여 나간 땅 ${sim.stats.landLost || 0}칸 · 새로 생긴 땅 ${sim.stats.landGained || 0}칸</span>
           <span class="k">무거운 사건</span><span>일가족 살인 ${sim.stats.massacres || 0} · 묻지마 ${sim.stats.randomCrimes || 0} · 학살 ${sim.stats.atrocities || 0} · 사형 ${sim.stats.executions || 0} · 사적 제재 ${sim.stats.lynchings || 0} · 마녀사냥 ${sim.stats.witchHunts || 0} · 인신공양 ${sim.stats.sacrifices || 0}${sim.stats.feuds >= 2 ? ` · 피의 복수 최대 ${sim.stats.feuds}대째` : ''}</span>
           <span class="k">마음의 병</span><span>${sim.humans.filter((h) => h.mind).length}명 앓는 중 · 회복 ${sim.stats.recovered || 0}명</span>
           <span class="k">야생 동물</span><span>${Object.keys(G.Wild.KINDS).map((k) => { const n = sim.animals.filter((a) => a.alive && a.kind === k && !a.tame).length; return n ? `${G.Wild.KINDS[k].name} ${n}` : ''; }).filter(Boolean).join(' · ')}</span>
