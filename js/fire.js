@@ -109,7 +109,8 @@
     for (const t of sim.tribes) if (t.alive) t.fireAlarm = false;
     for (const i of sim.fires) {
       const x = (i % w.w) + 0.5, y = ((i / w.w) | 0) + 0.5;
-      for (const t of sim.tribes) if (t.alive && !t.fireAlarm && G.dist(t.cx, t.cy, x, y) < 20) t.fireAlarm = true;
+      // 마을에서 30칸 안의 불은 모두 마을의 일이다 (경계에서 경보가 깜빡이면 떠 온 물을 버리게 된다)
+      for (const t of sim.tribes) if (t.alive && !t.fireAlarm && G.dist(t.cx, t.cy, x, y) < 30) t.fireAlarm = true;
     }
     if (!sim.fires.size && sim.burning) {
       sim.burning = false;
@@ -159,9 +160,14 @@
   // 사람의 판단: 마을 근처에 불이 나면 물을 떠서 끈다
   F.decide = (sim, h) => {
     const t = h.tribe;
+    // 이미 물을 떠 왔으면 경보와 상관없이 가까운 불에 붓는다
+    if (h.carry === 'water' && h.carryAmt > 0 && !h.jail) {
+      const f = F.nearestFire(sim, h.x, h.y, 30);
+      if (f) { const a = Math.atan2(h.y - f.y, h.x - f.x); return h.goTo(sim, f.x + Math.cos(a) * 1.1, f.y + Math.sin(a) * 1.1, { kind: 'douse', tile: f.i }); }
+    }
     if (!t || !t.fireAlarm || !h.adult || h.jail || h.sick) return false;
     if (h.carry === 'water') {
-      const f = F.nearestFire(sim, h.x, h.y, 25);
+      const f = F.nearestFire(sim, h.x, h.y, 30);
       if (!f) return false;
       const a = Math.atan2(h.y - f.y, h.x - f.x);
       return h.goTo(sim, f.x + Math.cos(a) * 1.1, f.y + Math.sin(a) * 1.1, { kind: 'douse', tile: f.i });
@@ -179,20 +185,23 @@
     }
     const f = F.nearestFire(sim, h.x, h.y, 28);
     if (!f) return false;
-    // 불 가까운 물가에서 물을 뜬다. 물이 멀면 흙을 덮어 끈다
-    const wsrc = sim.world.findWater(f.x, f.y, 12);
+    // 불 가까운 물가에서 물을 뜬다 (자기 근처 물가가 더 가까우면 그쪽). 물이 너무 멀면 흙을 덮어 끈다
+    let wsrc = sim.world.findWater(f.x, f.y, 18);
+    const mine = sim.world.findWater(h.x, h.y, 8);
+    if (mine && (!wsrc || G.dist(mine.x, mine.y, f.x, f.y) < 22)) wsrc = mine;
     h.carry = null; h.carryAmt = 0;
     if (wsrc) return h.goTo(sim, wsrc.x + 0.5, wsrc.y + 0.5, { kind: 'fetch' });
     const a = Math.atan2(h.y - f.y, h.x - f.x);
     return h.goTo(sim, f.x + Math.cos(a) * 1.1, f.y + Math.sin(a) * 1.1, { kind: 'douse', tile: f.i, dirt: true });
   };
 
-  F.onFetch = (sim, h) => { h.carry = 'water'; h.carryAmt = 1; h.say('~', 40); };
+  // 물동이 하나로 불 세 곳을 끌 수 있다
+  F.onFetch = (sim, h) => { h.carry = 'water'; h.carryAmt = 3; h.say('~', 40); };
 
   F.onDouse = (sim, h, task) => {
     const w = sim.world;
     let i = task.tile;
-    if (!(w.fire[i] > 0)) { const f = F.nearestFire(sim, h.x, h.y, 3); if (!f) { h.carry = null; h.carryAmt = 0; return; } i = f.i; }
+    if (!(w.fire[i] > 0)) { const f = F.nearestFire(sim, h.x, h.y, 3); if (!f) { if (task.dirt) { h.carry = null; h.carryAmt = 0; } return; } i = f.i; }
     const fx = (i % w.w) + 0.5, fy = ((i / w.w) | 0) + 0.5;
     w.fire[i] -= (task.dirt ? 0.6 : 1) + (h.body - 50) / 300;
     // 물이 튀어 옆 불도 약해진다
@@ -203,7 +212,10 @@
       if (w.fire[j] > 0) { w.fire[j] -= 0.35; if (w.fire[j] <= 0) { F.out(sim, j, false); sim.dousedCount = (sim.dousedCount || 0) + 1; } }
     }
     sim.effects.push({ kind: 'steam', x: fx, y: fy, age: 0, ttl: 40 });
-    h.carry = null; h.carryAmt = 0;
+    // 물동이에 물이 남았으면 다음 불로 간다
+    if (task.dirt || h.carry !== 'water') { h.carry = null; h.carryAmt = 0; }
+    else if (--h.carryAmt <= 0) { h.carry = null; h.carryAmt = 0; }
+    h.pourT = 30; // 물 붓는 동작
     h.say('~', 40);
     if (w.fire[i] <= 0) {
       F.out(sim, i, false);

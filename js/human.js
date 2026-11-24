@@ -131,6 +131,15 @@
 
     think(sim) {
       if (this.timer > 0) this.timer -= sim.pace;
+      if (this.pourT > 0) this.pourT--;
+      if (this.treatT > 0) this.treatT--;
+      // 마을에 불이 나면 하던 일을 멈추고 달려간다 (잠든 사람은 'sleep'에서 깨운다)
+      const ft = this.tribe;
+      if (ft && ft.fireAlarm && this.adult && !this.jail && !this.held && chance(0.02)
+        && (this.state === 'gather' || this.state === 'rest' || this.state === 'hobby' || this.state === 'party' || this.state === 'busy'
+          || (this.state === 'goto' && this.task && !['fetch', 'douse', 'eat', 'arrest', 'raid', 'hunt'].includes(this.task.kind)))) {
+        this.state = 'idle'; this.task = null; this.busy = null;
+      }
       switch (this.state) {
         case 'sleep':
           if (!sim.sleepTime() || (this.tribe && this.tribe.fireAlarm) || this.hunger > 90) { this.state = 'idle'; this.say('☀', 60); }
@@ -231,6 +240,12 @@
         if ((this.partner || this.lover || this.affair) && chance(this.affair ? 0.05 : 0.03) && G.Social.startDate(sim, this)) return;
         if (chance(0.01 + this.p.extra / 4000) && G.Social.visitFriend(sim, this)) return;
         if (G.Persona.leisure(sim, this)) return;
+      }
+
+      // 짓고 있는 집이 있으면 거든다
+      if (this.adult && !this.labor && this.hunger < 45 && chance(0.12)) {
+        const hs = t.houses.find((q) => q.b !== undefined && q.b < 1);
+        if (hs) return this.goTo(sim, hs.x + (chance(0.5) ? -0.8 : 0.8), hs.y + 0.3, { kind: 'build', hs });
       }
 
       // 6) 직업별 행동
@@ -352,7 +367,7 @@
         case 'eat':
           if (this.tribe && !this.tribe.feed(sim, this)) this.refused = true;
           break;
-        case 'wander': this.state = 'rest'; this.timer = randi(20, 90); break;
+        case 'wander': this.state = 'rest'; this.timer = randi(15, 55); break;
         case 'sleep': this.state = sim.sleepTime() ? 'sleep' : 'idle'; break;
         case 'trade-sell': this.sellGoods(sim, k.to); break;
         case 'pray': this.startPray(sim, k.why); return;
@@ -361,7 +376,8 @@
         case 'party': this.state = 'party'; this.timer = randi(180, 300); this.say('♪', 200); break;
         case 'hunt': this.task = null; G.Wild.onArriveHunt(sim, this, k); return;
         case 'arrest': this.task = null; G.Crime.onArriveArrest(sim, this, k); return;
-        case 'treat': G.Mind.treat(sim, this, sim.byId.get(k.pid)); this.state = 'rest'; this.timer = 40; break;
+        case 'treat': G.Mind.treat(sim, this, sim.byId.get(k.pid)); this.state = 'rest'; this.timer = 40; this.treatT = 40; break;
+        case 'build': this.state = 'busy'; this.busy = k; this.timer = 80; this.say('⚒', 80); if (k.hs) this.dir = k.hs.x >= this.x ? 1 : -1; return;
         case 'till': this.state = 'busy'; this.busy = k; this.timer = 70; this.say('⚒', 70); return;
         case 'forge': this.state = 'busy'; this.busy = k; this.timer = 110; this.say('⚒', 110); return;
         case 'tend': this.state = 'busy'; this.busy = k; this.timer = 90; this.say('♥', 60); return;
@@ -387,7 +403,12 @@
       const k = this.busy; this.busy = null; this.state = 'idle';
       const t = this.tribe;
       if (!k) return;
-      if (k.kind === 'till') {
+      if (k.kind === 'build') {
+        if (k.hs && k.hs.b < 1 && t && t.houses.includes(k.hs)) {
+          k.hs.b = Math.min(1, k.hs.b + 0.2 * (1 + (t.toolBonus ? t.toolBonus() : 0)));
+          if (k.hs.b >= 1 && !this.builtLog) { this.builtLog = true; this.log(sim, '이웃과 함께 집 한 채를 지었다'); }
+        }
+      } else if (k.kind === 'till') {
         const w = sim.world;
         if (w.type[k.tile] === G.T.GRASS && !w.farm[k.tile]) {
           w.farm[k.tile] = 1; w.fert[k.tile] = Math.max(w.fert[k.tile], 1.6); w.food[k.tile] = Math.max(w.food[k.tile], 2); w.dirty = true;

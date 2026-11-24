@@ -15,7 +15,7 @@
       case 'held': { const b = h.held && sim.tribeById(h.held.tid); return h.held && h.held.forced ? `${b ? b.name + '에 ' : ''}끌려가 강제로 혼인당한 상태` : `${b ? b.name + '에 ' : ''}인질로 잡혀 있음 (몸값 금화 ${h.held ? h.held.ransom : '?'}개)`; }
       case 'hobby': return h.curHobby === '공부' ? '혼자 조용히 공부하는 중' : `${h.curHobby || '취미'}을(를) 즐기는 중`;
       case 'jailed': return `감옥에 갇혀 있음 (남은 형기 ${Math.max(0, h.jail.until - sim.year).toFixed(1)}년)`;
-      case 'busy': return h.busy && h.busy.kind === 'till' ? '밭을 일구는 중' : h.busy && h.busy.kind === 'tend' ? '가축을 돌보는 중' : '도구를 만드는 중';
+      case 'busy': return h.busy && h.busy.kind === 'till' ? '밭을 일구는 중' : h.busy && h.busy.kind === 'tend' ? '가축을 돌보는 중' : h.busy && h.busy.kind === 'build' ? '집을 짓는 중' : '도구를 만드는 중';
       case 'fight': return `${h.target ? h.target.name + '와(과) ' : ''}싸우는 중`;
       case 'goto':
         if (k === 'gather') return `${G.RES_NAME[h.task.res]} 모으러 가는 중`;
@@ -46,6 +46,7 @@
   class UI {
     constructor(app) {
       this.app = app;
+      this.bindTips();
       this.info = document.getElementById('info');
       this.logEl = document.getElementById('log');
       this.view = 'overview'; // overview | archive
@@ -114,7 +115,7 @@
       return `
         <h2>${esc(h.name)} <span class="muted">${h.gender === 'M' ? '남' : '여'} · ${Math.floor(h.age)}세</span></h2>
         <div>${t ? `<span class="chip link" data-act="tribe" data-id="${t.id}"><span class="dot" style="background:${t.color}"></span> ${esc(t.name)}</span>` : '<span class="chip">부족 없음</span>'}
-          <span class="chip" title="${esc(G.JOB_DESC[h.job] || '')}">${esc(h.job)}</span>${h.traits.map((x) => `<span class="chip" title="${esc(G.TRAIT_DESC[x] || '')}">${esc(x)}</span>`).join('')}
+          <span class="chip" data-tip="${esc(`${h.job}\n${G.JOB_DESC[h.job] || ''}`)}">${esc(h.job)}</span>${h.traits.map((x) => `<span class="chip" data-tip="${esc(this.traitTip(x))}">${esc(x)}</span>`).join('')}
           ${h.jail ? '<span class="chip" style="color:#ffb070">수감 중</span>' : ''}${h.wanted ? '<span class="chip" style="color:#ff6b6b">수배 중</span>' : ''}${h.outlaw ? '<span class="chip" style="color:#bbb">무법자</span>' : ''}${h.branded ? '<span class="chip" style="color:#c99">낙인</span>' : ''}${h.labor ? '<span class="chip" style="color:#d9b26a">강제노역 중</span>' : ''}${h.enslaved ? '<span class="chip" style="color:#ff9a7a">노예</span>' : ''}${h.cult ? `<span class="chip" style="color:#c9a0ff">교주 (신자 ${h.cult.followers.length}명)</span>` : ''}</div>
         <p class="muted" style="margin:8px 0">지금 ${STATE_TEXT(h, sim)}${h.pregnant ? ` · <span style="color:#ff9ac1">임신 ${Math.max(1, Math.round((1 - h.pregnant / (G.CFG.TPY * 0.75)) * 9))}개월</span>` : ''}</p>
         ${this.bars(h)}
@@ -152,10 +153,43 @@
       return `<h4>기분 · <span style="color:${lab.c}">${lab.t}</span> (${Math.round(h.happy)})</h4><div>${chips || '<span class="muted">특별한 일 없음</span>'}</div>`;
     }
 
+    // 마우스를 올리면 뜨는 설명 상자 (data-tip, 줄바꿈은 \n). 패널이 다시 그려져도 따라가도록 mousemove로 찾는다
+    bindTips() {
+      const tip = document.createElement('div');
+      tip.id = 'tip'; tip.hidden = true;
+      document.body.appendChild(tip);
+      let cur = null;
+      document.addEventListener('mousemove', (e) => {
+        const el = e.target.closest && e.target.closest('[data-tip]');
+        const text = el && el.dataset.tip;
+        if (!text) { tip.hidden = true; cur = null; return; }
+        if (text !== cur) {
+          cur = text;
+          const [head, ...rest] = text.split('\n').filter(Boolean);
+          tip.innerHTML = `<b>${esc(head)}</b>` + rest.map((l) => {
+            const c = l[0] === '+' ? 'good' : l[0] === '-' ? 'bad' : l[0] === '·' || l[0] === '(' ? 'muted' : '';
+            return `<div class="${c}">${esc(l)}</div>`;
+          }).join('');
+        }
+        tip.hidden = false;
+        const w = tip.offsetWidth, h = tip.offsetHeight;
+        let x = e.clientX + 14, y = e.clientY + 14;
+        if (x + w > window.innerWidth - 8) x = e.clientX - w - 14;
+        if (y + h > window.innerHeight - 8) y = Math.max(8, window.innerHeight - h - 8);
+        tip.style.left = x + 'px'; tip.style.top = y + 'px';
+      });
+    }
+
+    traitTip(x) {
+      const opp = G.OPP[x];
+      return `${x}\n${G.TRAIT_DESC[x] || ''}\n${(G.TRAIT_FX[x] || []).join('\n')}${opp ? `\n(${opp}과(와) 함께 가질 수 없음)` : ''}`;
+    }
+
     personaBlock(h) {
       const P = G.Persona;
-      const bar = (k, v, col, tip) => `<span title="${esc(tip || '')}">${k}</span><div class="bar" title="${esc(tip || '')}"><i style="width:${Math.max(0, Math.min(100, v))}%;background:${col}"></i></div><span>${Math.round(v)}</span>`;
-      const dims = Object.entries(P.DIMS).map(([k, D]) => bar(D.name, h.p[k], h.p[k] >= 65 ? '#f0b35a' : h.p[k] <= 35 ? '#7aa7e0' : '#9aa6b8', h.p[k] >= 50 ? D.hi : D.lo)).join('');
+      const bar = (k, v, col, tip) => `<span data-tip="${esc(tip || '')}">${k}</span><div class="bar" data-tip="${esc(tip || '')}"><i style="width:${Math.max(0, Math.min(100, v))}%;background:${col}"></i></div><span>${Math.round(v)}</span>`;
+      const dims = Object.entries(P.DIMS).map(([k, D]) => bar(D.name, h.p[k], h.p[k] >= 65 ? '#f0b35a' : h.p[k] <= 35 ? '#7aa7e0' : '#9aa6b8',
+        `${D.name} ${Math.round(h.p[k])} · ${h.p[k] >= 65 ? '높음' : h.p[k] <= 35 ? '낮음' : '보통'}\n${h.p[k] >= 50 ? D.hi : D.lo}\n${(G.DIM_FX[k] || []).map((x) => '· ' + x).join('\n')}`)).join('');
       const tetoPct = (h.teto + 100) / 2;
       const prefTxt = h.typePref === 'teto' ? '테토 스타일' : h.typePref === 'egen' ? '에겐 스타일' : '스타일 상관없음';
       return `<h4>기질</h4>
@@ -170,7 +204,7 @@
           <span class="k">지식</span><span>${h.knowledge.toFixed(1)}${h.discoveries ? ` · 발견 ${h.discoveries}개` : ''} · 학구열 ${Math.round(P.studyZeal(h) * 100)}</span>
           ${h.addiction > 10 ? `<span class="k">중독</span><span style="color:#ffb070">${Math.round(h.addiction)} ${h.addiction > 50 ? '(술과 도박에 빠져 있음)' : ''}</span>` : ''}
         </div>
-        <h4 style="margin-top:10px">성격 <span class="muted" style="font-weight:400">(막대에 마우스를 올리면 장단점)</span></h4>
+        <h4 style="margin-top:10px">성격 <span class="muted" style="font-weight:400">(마우스를 올리면 장단점과 효과)</span></h4>
         <div class="bars">${dims}</div>`;
     }
 

@@ -207,7 +207,7 @@
         if (!sim.world.walkable(x, y)) continue;
         if (this.houses.some((hs) => Math.hypot(hs.x - x, hs.y - y) < 1.1)) continue;
         if (Math.hypot(x - this.cx, y - this.cy) < 1.3) continue;
-        this.houses.push({ x, y });
+        this.houses.push({ x, y, b: 0 }); // b: 다 지어진 정도 (0 → 1). 사람들이 망치질로 짓는다
         this.stock.wood -= 6;
         return true;
       }
@@ -263,6 +263,8 @@
         if ([5, 10, 20, 30].includes(this.houses.length)) this.log(sim, `${this.name}의 마을에 집이 ${this.houses.length}채가 되었습니다`);
       }
 
+      // 짓다 만 집은 해가 바뀌면 조금씩 저절로 올라간다 (짓는 사람이 없어도 멈추지 않게)
+      for (const hs of this.houses) if (hs.b !== undefined && hs.b < 1) hs.b = Math.min(1, hs.b + 0.35);
       // 신전
       const avgFaith = this.members.reduce((s, m) => s + m.faith, 0) / this.members.length;
       if (!this.temple && avgFaith > 50 && this.stock.wood >= 15 && this.members.length >= 8) {

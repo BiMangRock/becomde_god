@@ -6,7 +6,8 @@
   const T = (G.T = { DEEP: 0, WATER: 1, SAND: 2, GRASS: 3, FOREST: 4, HILL: 5, MOUNTAIN: 6, SNOW: 7 });
   G.TILE_NAMES = ['깊은 바다', '얕은 바다', '모래사장', '초원', '숲', '언덕', '산', '설산'];
   const COL = [[24, 62, 112], [46, 104, 170], [222, 204, 140], [112, 172, 70], [50, 112, 46], [150, 152, 96], [124, 118, 110], [232, 236, 240]];
-  G.TILE_SPEED = [0, 0, 0.9, 1, 0.75, 0.7, 0.5, 0.4];
+  // 걷는 빠르기 (초원 = 1). 언덕·산·설산을 넘으면 훨씬 오래 걸리고, 길 찾기도 이를 따져 돌아갈지 넘을지 정한다
+  G.TILE_SPEED = [0, 0, 0.9, 1, 0.75, 0.6, 0.3, 0.2];
 
   function mulberry32(a) {
     return function () {
@@ -180,9 +181,22 @@
       return true;
     }
 
+    // 곧게 가도 손해가 없는가: 걸을 수 있고, 양 끝보다 느린 땅(언덕·산·숲)을 지나지 않는다
+    lineCheap(x0, y0, x1, y1) {
+      const SP = G.TILE_SPEED;
+      const floor = Math.min(SP[this.typeAt(x0, y0)] || 1, SP[this.typeAt(x1, y1)] || 1) - 0.01;
+      const d = Math.hypot(x1 - x0, y1 - y0);
+      const n = Math.ceil(d / 0.3);
+      for (let k = 1; k <= n; k++) {
+        const t = k / n, x = x0 + (x1 - x0) * t, y = y0 + (y1 - y0) * t;
+        if (!this.walkable(x, y) || SP[this.typeAt(x, y)] < floor) return false;
+      }
+      return true;
+    }
+
     // A* 길찾기. 경유점 배열을 돌려주고, 길이 없으면 null
     findPath(sx, sy, tx, ty, maxNodes = this.maxNodes) {
-      if (this.lineClear(sx, sy, tx, ty)) return [{ x: tx, y: ty }];
+      if (this.lineCheap(sx, sy, tx, ty)) return [{ x: tx, y: ty }];
       const W = this.w, H = this.h, n = W * H;
       if (!this._g) {
         this._g = new Float32Array(n); this._stamp = new Uint32Array(n); this._came = new Int32Array(n);
@@ -262,7 +276,7 @@
       let ax = sx, ay = sy, i = 0;
       while (i < pts.length) {
         let j = Math.min(pts.length - 1, i + 12);
-        while (j > i && !this.lineClear(ax, ay, pts[j].x, pts[j].y)) j--;
+        while (j > i && !this.lineCheap(ax, ay, pts[j].x, pts[j].y)) j--;
         out.push(pts[j]); ax = pts[j].x; ay = pts[j].y; i = j + 1;
       }
       return out;
