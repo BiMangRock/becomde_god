@@ -177,16 +177,19 @@
       const w = sim.world;
 
       // 0) 밤에는 집에 가서 잔다 (느린 시간 흐름에서). 경비병·경비원 일부는 밤에도 지킨다
-      if (sim.sleepTime() && this.hunger < 80 && !((this.job === J.GUARD || this.job === J.WATCH) && this.id % 2 === 0) && !(t && t.fireAlarm)) {
+      if (!(this.lost || this.trek || this.hermit || this.abducted) && sim.sleepTime() && this.hunger < 80 && !((this.job === J.GUARD || this.job === J.WATCH) && this.id % 2 === 0) && !(t && t.fireAlarm)) {
         return this.goSleep(sim);
       }
+
+      // 이주 중, 홀로 사는 사람, 길 잃은 사람, 납치된 사람은 따로 판단한다 (migrate.js)
+      if (G.Migrate.decide(sim, this)) return;
 
       // 1) 배고픔 (마을에서 멀수록 일찍 돌아간다)
       const far = t ? Math.min(30, G.dist(this.x, this.y, t.cx, t.cy) * 1.2) : 0;
       if (this.hunger > 55 - far && !this.ration && !(this.carry === 'food' && this.carryAmt > 0)) {
         // 마을이 멀면 근처에서 먼저 먹을 것을 찾는다
         if (far > 12 || this.hunger > 80) {
-          const near = w.findResource(this.x, this.y, 'food', 6);
+          const near = w.findResource(this.x, this.y, 'food', 6) || (this.hunger > 75 ? w.findResource(this.x, this.y, 'food', 14) : null);
           if (near) return this.goTo(sim, near.x + 0.5, near.y + 0.5, { kind: 'gather', res: 'food', tile: near.i, cap: 2 });
         }
         if (t && t.stock.food >= 1 && !this.refused) {
@@ -252,7 +255,7 @@
       switch (this.job) {
         case J.GATHER: case J.WOOD: case J.MINE: return this.work(sim, JOB_RES[this.job]);
         case J.HUNTER:
-          if (G.Wild.startHunt(sim, this)) return;
+          if (this.hunger < 45 && G.Wild.startHunt(sim, this)) return;
           return this.work(sim, 'food');
         case J.FISHER: {
           const sh = w.findShore(t.cx, t.cy, 18);
@@ -377,7 +380,7 @@
         case 'hunt': this.task = null; G.Wild.onArriveHunt(sim, this, k); return;
         case 'arrest': this.task = null; G.Crime.onArriveArrest(sim, this, k); return;
         case 'treat': G.Mind.treat(sim, this, sim.byId.get(k.pid)); this.state = 'rest'; this.timer = 40; this.treatT = 40; break;
-        case 'build': this.state = 'busy'; this.busy = k; this.timer = 80; this.say('⚒', 80); if (k.hs) this.dir = k.hs.x >= this.x ? 1 : -1; return;
+        case 'build': this.state = 'busy'; this.busy = k; this.timer = 80; this.say('⚒', 80); { const o = k.hs || k.hut; if (o) this.dir = o.x >= this.x ? 1 : -1; } return;
         case 'till': this.state = 'busy'; this.busy = k; this.timer = 70; this.say('⚒', 70); return;
         case 'forge': this.state = 'busy'; this.busy = k; this.timer = 110; this.say('⚒', 110); return;
         case 'tend': this.state = 'busy'; this.busy = k; this.timer = 90; this.say('♥', 60); return;
@@ -404,6 +407,7 @@
       const t = this.tribe;
       if (!k) return;
       if (k.kind === 'build') {
+        if (k.hut) { k.hut.hut = Math.min(1, (k.hut.hut || 0) + 0.34); if (k.hut.hut >= 1) this.log(sim, '손수 움막을 지었다'); }
         if (k.hs && k.hs.b < 1 && t && t.houses.includes(k.hs)) {
           k.hs.b = Math.min(1, k.hs.b + 0.2 * (1 + (t.toolBonus ? t.toolBonus() : 0)));
           if (k.hs.b >= 1 && !this.builtLog) { this.builtLog = true; this.log(sim, '이웃과 함께 집 한 채를 지었다'); }
@@ -505,6 +509,8 @@
       }
       if (!best) return false;
       const cost = Math.ceil(home.price(best.r) * best.qty);
+      // 먼 장삿길에는 도시락을 챙긴다 (산을 넘으면 오래 걸린다)
+      if (this.ration < 2 && home.stock.food >= 3) { home.stock.food -= 2 - this.ration; this.ration = 2; }
       this.gold -= cost; home.treasury += cost; home.stock[best.r] -= best.qty;
       this.carry = best.r; this.carryAmt = best.qty; this.tradeCost = cost;
       this.say('거래', 60);

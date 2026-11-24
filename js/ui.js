@@ -116,7 +116,7 @@
         <h2>${esc(h.name)} <span class="muted">${h.gender === 'M' ? '남' : '여'} · ${Math.floor(h.age)}세</span></h2>
         <div>${t ? `<span class="chip link" data-act="tribe" data-id="${t.id}"><span class="dot" style="background:${t.color}"></span> ${esc(t.name)}</span>` : '<span class="chip">부족 없음</span>'}
           <span class="chip" data-tip="${esc(`${h.job}\n${G.JOB_DESC[h.job] || ''}`)}">${esc(h.job)}</span>${h.traits.map((x) => `<span class="chip" data-tip="${esc(this.traitTip(x))}">${esc(x)}</span>`).join('')}
-          ${h.jail ? '<span class="chip" style="color:#ffb070">수감 중</span>' : ''}${h.wanted ? '<span class="chip" style="color:#ff6b6b">수배 중</span>' : ''}${h.outlaw ? '<span class="chip" style="color:#bbb">무법자</span>' : ''}${h.branded ? '<span class="chip" style="color:#c99">낙인</span>' : ''}${h.labor ? '<span class="chip" style="color:#d9b26a">강제노역 중</span>' : ''}${h.enslaved ? '<span class="chip" style="color:#ff9a7a">노예</span>' : ''}${h.cult ? `<span class="chip" style="color:#c9a0ff">교주 (신자 ${h.cult.followers.length}명)</span>` : ''}</div>
+          ${h.jail ? '<span class="chip" style="color:#ffb070">수감 중</span>' : ''}${h.wanted ? '<span class="chip" style="color:#ff6b6b">수배 중</span>' : ''}${h.outlaw ? '<span class="chip" style="color:#bbb">무법자</span>' : ''}${h.branded ? '<span class="chip" style="color:#c99">낙인</span>' : ''}${h.labor ? '<span class="chip" style="color:#d9b26a">강제노역 중</span>' : ''}${h.enslaved ? '<span class="chip" style="color:#ff9a7a">노예</span>' : ''}${h.trek ? '<span class="chip" style="color:#9be36b">이주 중</span>' : ''}${h.hermit ? `<span class="chip" style="color:#d9b26a">${h.hermit.sage ? '현자' : '홀로 사는 사람'}</span>` : ''}${h.lost ? '<span class="chip" style="color:#c9a0ff">길 잃음</span>' : ''}${h.abducted ? '<span class="chip" style="color:#ff8a80">납치됨</span>' : ''}${h.cult ? `<span class="chip" style="color:#c9a0ff">교주 (신자 ${h.cult.followers.length}명)</span>` : ''}</div>
         <p class="muted" style="margin:8px 0">지금 ${STATE_TEXT(h, sim)}${h.pregnant ? ` · <span style="color:#ff9ac1">임신 ${Math.max(1, Math.round((1 - h.pregnant / (G.CFG.TPY * 0.75)) * 9))}개월</span>` : ''}</p>
         ${this.bars(h)}
         ${this.personaBlock(h)}
@@ -300,7 +300,7 @@
         .map((m) => this.personLink(m)).join(', ');
       return `
         <h2><span class="dot" style="background:${t.color};width:14px;height:14px"></span>${esc(t.name)}</h2>
-        <p class="muted" style="margin:4px 0 8px">${t.founded}년에 세워짐${t.temple ? ' · 신전 있음' : ''}</p>
+        <p class="muted" style="margin:4px 0 8px">${t.founded}년에 세워짐${t.origin ? ` · ${esc(t.origin)}${t.origin === '움막' ? '에서 시작됨' : '에서 갈라져 나옴'}` : ''}${t.temple ? ' · 신전 있음' : ''}</p>
         <div class="kv">
           <span class="k">족장</span><span>${t.chief ? this.personLink(t.chief) : '<span class="muted">없음</span>'}</span>
           <span class="k">인구</span><span>${t.members.length}명 (최대 ${t.peak}명) · 집 ${t.houses.length}채</span>
@@ -386,6 +386,7 @@
           <span class="k">전과자</span><span>${sim.humans.filter((h) => h.alive && h.convictions).length}명 · 갱생 ${sim.humans.filter((h) => h.alive && h.redeemed).length}명 · 인질 ${sim.humans.filter((h) => h.held).length}명</span>
           <span class="k">사법</span><span>체포 ${sim.stats.arrests || 0} · 수감 중 ${sim.humans.filter((h) => h.jail).length} · 탈옥 ${sim.stats.escapes || 0} · 추방 ${sim.stats.exiles || 0}</span>
           <span class="k">무법자</span><span>${sim.humans.filter((h) => h.alive && h.outlaw).length}명 · 도적단 ${tribes.filter((t) => t.bandit).length}개 · 노예 ${sim.humans.filter((h) => h.alive && h.enslaved).length}명</span>
+          <span class="k">이동</span><span>이주 무리 ${(sim.treks || []).length}개 (지금까지 ${sim.stats.treks || 0}번) · 부족 병합 ${sim.stats.merges || 0}번 · 홀로 사는 사람 ${sim.humans.filter((h) => h.alive && h.hermit).length}명 · 길 잃은 사람 ${sim.humans.filter((h) => h.alive && h.lost).length}명 · 납치 ${sim.stats.abductions || 0}건</span>
           <span class="k">무거운 사건</span><span>일가족 살인 ${sim.stats.massacres || 0} · 묻지마 ${sim.stats.randomCrimes || 0} · 학살 ${sim.stats.atrocities || 0} · 사형 ${sim.stats.executions || 0} · 사적 제재 ${sim.stats.lynchings || 0} · 마녀사냥 ${sim.stats.witchHunts || 0} · 인신공양 ${sim.stats.sacrifices || 0}${sim.stats.feuds >= 2 ? ` · 피의 복수 최대 ${sim.stats.feuds}대째` : ''}</span>
           <span class="k">마음의 병</span><span>${sim.humans.filter((h) => h.mind).length}명 앓는 중 · 회복 ${sim.stats.recovered || 0}명</span>
           <span class="k">야생 동물</span><span>${Object.keys(G.Wild.KINDS).map((k) => { const n = sim.animals.filter((a) => a.alive && a.kind === k && !a.tame).length; return n ? `${G.Wild.KINDS[k].name} ${n}` : ''; }).filter(Boolean).join(' · ')}</span>

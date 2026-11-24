@@ -2,7 +2,7 @@
 (function () {
   const G = globalThis.G;
   const $ = (id) => document.getElementById(id);
-  const BRUSH = { inspect: 0, create: 0.6, rain: 7, bless: 5, lightning: 1.2, meteor: 4, cupid: 0, judgment: 0, heal: 5, fertility: 5, discord: 5, raise: 2.6, lower: 2.6 };
+  const BRUSH = { inspect: 0, create: 0.6, rain: 7, bless: 5, lightning: 1.2, meteor: 4, cupid: 0, judgment: 0, carry: 0, revelation: 0, quake: 8, plague: 6, beasts: 2, heal: 5, fertility: 5, discord: 5, raise: 2.6, lower: 2.6 };
 
   const app = {
     sim: null, renderer: null, ui: null,
@@ -153,6 +153,9 @@
     app.renderer.cupidFirst = null;
     if (t === 'cupid') app.toast('사랑에 빠뜨릴 첫 번째 사람을 누르세요');
     if (t === 'judgment') app.toast('심판할 사람을 누르세요');
+    app.renderer.carrying = null;
+    if (t === 'carry') app.toast('옮길 사람을 누르세요');
+    if (t === 'revelation') app.toast('계시를 내릴 사람을 누르세요');
     for (const b of document.querySelectorAll('#tools button')) b.classList.toggle('on', b.dataset.tool === t);
     app.renderer.brush = { ...(app.renderer.brush || { x: 0, y: 0 }), r: BRUSH[t] };
     $('world').style.cursor = t === 'inspect' ? 'grab' : 'crosshair';
@@ -191,6 +194,30 @@
     const r = G.Crime3.judgment(app.sim, h);
     if (r.msg) app.toast(r.msg);
     if (r.ok && h.alive) app.select({ type: 'human', h });
+  }
+
+  // 사람 옮기기: 한 번 눌러 집고, 다시 눌러 내려놓는다
+  function carryClick(wx, wy) {
+    const R = app.renderer;
+    if (!R.carrying || !R.carrying.alive) {
+      const h = app.sim.humanAt(wx, wy, Math.max(0.8, 12 / R.cam.s));
+      if (!h) return app.toast('사람을 정확히 눌러 주세요 (확대하면 쉬워요)');
+      R.carrying = h;
+      return app.toast(`${h.name}을(를) 집었습니다 · 내려놓을 곳을 누르세요`);
+    }
+    const h = R.carrying;
+    R.carrying = null;
+    const r = G.Migrate.carry(app.sim, h, wx, wy);
+    if (r.msg) app.toast(r.msg);
+    if (r.ok) app.select({ type: 'human', h });
+  }
+  function revelationClick(wx, wy) {
+    const R = app.renderer;
+    const h = app.sim.humanAt(wx, wy, Math.max(0.8, 12 / R.cam.s));
+    if (!h) return app.toast('사람을 정확히 눌러 주세요 (확대하면 쉬워요)');
+    const r = G.Migrate.revelation(app.sim, h);
+    if (r.msg) app.toast(r.msg);
+    if (r.ok) app.select({ type: 'human', h });
   }
 
   function usePower(wx, wy) {
@@ -238,6 +265,8 @@
         if (cont) holdPower = true;
         else if (app.tool === 'cupid') cupidClick(wx, wy);
         else if (app.tool === 'judgment') judgmentClick(wx, wy);
+        else if (app.tool === 'carry') carryClick(wx, wy);
+        else if (app.tool === 'revelation') revelationClick(wx, wy);
         else usePower(wx, wy);
       }
       if (pan) cv.style.cursor = 'grabbing';

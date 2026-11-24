@@ -221,6 +221,7 @@
       if (!h.alive) continue;
       G.Mind.tick(sim, h);
       if (h.alive) G.Crime.tick(sim, h);
+      if (h.alive) G.Migrate.personTick(sim, h);
       if (h.alive) G.Persona.tick(sim, h);
     }
     S.couples(sim);

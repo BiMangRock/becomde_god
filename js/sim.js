@@ -17,6 +17,11 @@
     heal: { name: '치유', cost: 20, icon: '✚', desc: '주변 사람의 상처와 마음의 병, 스트레스, 원한을 씻어 준다' },
     fertility: { name: '다산', cost: 20, icon: '✿', desc: '주변 부부에게 아이가 생기기 쉬워지고 출산이 안전해진다' },
     discord: { name: '불화', cost: 15, icon: '☁', desc: '주변 사람들이 서로 미워하고 다툰다' },
+    carry: { name: '사람 옮기기', cost: 10, icon: '✋', desc: '사람을 집어 다른 곳에 내려놓는다. 낯선 곳이면 길을 잃고 헤매다 집을 찾거나 그곳에 적응한다' },
+    revelation: { name: '계시', cost: 25, icon: '☼', desc: '한 사람에게 꿈으로 깨달음을 준다. 지식이 크게 늘고 부족의 발견이 빨라진다' },
+    quake: { name: '지진', cost: 40, icon: '≋', desc: '땅이 흔들려 집·신전·감옥이 무너지고 사람이 다친다' },
+    plague: { name: '역병', cost: 30, icon: '☣', desc: '옮는 병을 퍼뜨린다. 가까이 있는 사람에게 번진다' },
+    beasts: { name: '짐승 무리', cost: 15, icon: '♞', desc: '사슴·멧돼지·산양 같은 짐승 무리를 불러온다' },
     judgment: { name: '신의 재판', cost: 30, icon: '⚖', desc: '한 사람을 누른다. 숨긴 죄가 있으면 번개로 드러내고, 누명을 썼으면 신탁으로 벗겨 준다' },
     raise: { name: '땅 올리기', cost: 1, icon: '▲', desc: '누르고 있으면 땅이 솟는다' },
     lower: { name: '땅 내리기', cost: 1, icon: '▼', desc: '누르고 있으면 땅이 꺼진다' },
@@ -194,6 +199,7 @@
       G.Social.lifeTick(this);
       G.Crime.investigate(this);
       G.Crime3.social(this);
+      G.Migrate.social(this);
       this.tribelessGathering();
       if (this.humans.length > this.stats.maxPop) this.stats.maxPop = this.humans.length;
       const ms = [20, 50, 100, 200, 400, 800];
@@ -236,7 +242,7 @@
     tribelessGathering() {
       const loners = this.humans.filter((h) => h.alive && !h.tribe && h.adult);
       for (const h of shuffle(loners)) {
-        if (h.tribe) continue;
+        if (h.tribe || h.hermit || h.trek || h.lost || h.abducted) continue;
         // 근처 마을에 합류 (무법자는 오랜 세월이 지나야 받아준다)
         let joined = false;
         for (const t of this.tribes) {
@@ -251,7 +257,7 @@
         }
         if (joined) continue;
         const group = [];
-        this.near(h.x, h.y, 5, (o) => { if (!o.tribe && o.adult && !!o.outlaw === !!h.outlaw) group.push(o); });
+        this.near(h.x, h.y, 5, (o) => { if (!o.tribe && o.adult && !o.hermit && !o.trek && !o.lost && !!o.outlaw === !!h.outlaw) group.push(o); });
         if (group.length >= 3) h.together++;
         else h.together = Math.max(0, h.together - 1);
         if (h.together >= 8 && chance(0.3)) {
@@ -374,6 +380,7 @@
     yearly() {
       for (const t of this.tribes) if (t.alive) t.yearly(this, 'life');
       G.Crime3.yearly(this);
+      G.Migrate.yearly(this);
       if (!this.drought && this.year > 3 && chance(0.06)) {
         this.drought = randi(1, 2);
         this.event('가뭄이 시작되었습니다. 땅이 메마릅니다', '#e0a040');
@@ -524,7 +531,10 @@
           if (dead.length) this.event(`번개가 ${dead.map((d) => d.name).join(', ')}의 목숨을 앗아갔습니다`, '#fff3a0', x, y);
           break;
         }
-        case 'cupid': case 'judgment': return { ok: false, msg: '사람을 눌러 고르세요' };
+        case 'cupid': case 'judgment': case 'carry': case 'revelation': return { ok: false, msg: '사람을 눌러 고르세요' };
+        case 'quake': G.Migrate.quake(this, x, y); break;
+        case 'plague': G.Migrate.plague(this, x, y); break;
+        case 'beasts': G.Migrate.beasts(this, x, y); break;
         case 'fertility': G.Social.fertility(this, x, y); break;
         case 'heal': G.Mind.heal(this, x, y); break;
         case 'discord': G.Social.discord(this, x, y); break;

@@ -410,7 +410,8 @@
 
       }
       // 분열
-      if (life && !this.bandit && this.members.length > 32 && chance(0.35)) sim.splitTribe(this);
+      // 갈라져 나가기: 무리가 실제로 걸어가 도착해야 새 부족이 선다 (migrate.js)
+      if (life) G.Migrate.tribeYearly(sim, this);
     }
   }
 

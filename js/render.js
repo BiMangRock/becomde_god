@@ -87,6 +87,8 @@
       this.drawFires();
       for (const t of this.sim.tribes) if (t.alive) this.drawPen(t);
       this.drawTribes();
+      this.drawHermits();
+      this.drawTreks();
       this.drawAnimals();
       this.drawHumans();
       this.drawEffects();
@@ -99,6 +101,7 @@
       this.drawTribeLabels();
       this.fx.drawFlash(ctx);
       this.drawBrush();
+      this.drawCarried();
     }
 
     // 나무, 바위, 열매
@@ -474,7 +477,7 @@
       if (h.job === J.WARRIOR || h.job === J.PRIEST || h.job === J.MERCHANT) {
         ctx.fillStyle = color; ctx.fillRect(x - 2.6 * u + lx * 0.5, bodyTop + 4 * u, 5.2 * u, 1.2 * u); // 부족 띠
       }
-      if (h.held) {
+      if (h.held || h.abducted) {
         ctx.strokeStyle = '#a07840'; ctx.lineWidth = Math.max(1, 0.8 * u);
         ctx.beginPath(); ctx.moveTo(x - 3 * u, bodyTop + 3 * u); ctx.lineTo(x + 3 * u, bodyTop + 4 * u); ctx.moveTo(x - 3 * u, bodyTop + 5 * u); ctx.lineTo(x + 3 * u, bodyTop + 6 * u); ctx.stroke();
       }
@@ -588,6 +591,9 @@
         ctx.fillStyle = EMOTE_COLORS[h.emote] || '#ffe27a';
         if (h.emote === '♥' || h.emote === '♪' || h.emote === '#' || h.emote === '…') ctx.font = 'bold 15px sans-serif';
         ctx.fillText(h.emote, x, ey);
+      } else if (h.lost && s >= 14) {
+        ctx.font = 'bold 14px sans-serif'; ctx.textAlign = 'center'; ctx.fillStyle = '#c9a0ff';
+        ctx.fillText('?', x, top - (s >= 30 ? 18 : 4));
       } else if (h.hunger > 85 && s >= 14) {
         ctx.font = 'bold 11px sans-serif'; ctx.textAlign = 'center'; ctx.fillStyle = '#ffae42';
         ctx.fillText('배고픔', x, top - (s >= 30 ? 18 : 4));
@@ -1062,6 +1068,63 @@
       ctx.bezierCurveTo(x - r * 1.4, y - r * 0.1, x - r * 0.6, y - r * 1.1, x, y - r * 0.35);
       ctx.bezierCurveTo(x + r * 0.6, y - r * 1.1, x + r * 1.4, y - r * 0.1, x, y + r * 0.9);
       ctx.fill();
+    }
+
+    // 이주 무리: 지도자에서 목적지까지 점선, 목적지에 깃발
+    drawTreks() {
+      const sim = this.sim, ctx = this.ctx, s = this.cam.s;
+      for (const k of sim.treks || []) {
+        const L = sim.byId.get(k.leader);
+        if (!L) continue;
+        const [ax, ay] = this.toScreen(L.x, L.y), [bx, by] = this.toScreen(k.x, k.y);
+        ctx.strokeStyle = k.color; ctx.globalAlpha = 0.7; ctx.lineWidth = 1.5; ctx.setLineDash([3, 6]);
+        ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx, by); ctx.stroke(); ctx.setLineDash([]); ctx.globalAlpha = 1;
+        // 깃발
+        const fh = Math.max(10, s * 0.9);
+        ctx.strokeStyle = '#5b3b22'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(bx, by); ctx.lineTo(bx, by - fh); ctx.stroke();
+        ctx.fillStyle = k.color; ctx.beginPath(); ctx.moveTo(bx, by - fh); ctx.lineTo(bx + fh * 0.6, by - fh * 0.8); ctx.lineTo(bx, by - fh * 0.6); ctx.fill();
+        const n = k.members.filter((id) => { const m = sim.byId.get(id); return m && m.trek === k.id; }).length;
+        ctx.font = 'bold 11px sans-serif'; ctx.textAlign = 'center';
+        const label = `${L.name}의 무리 · ${n}명 이주 중`;
+        const tw = ctx.measureText(label).width;
+        ctx.fillStyle = 'rgba(0,0,0,0.55)'; ctx.fillRect(ax - tw / 2 - 4, ay - (s >= 10 ? s * 1.6 : 14) - 12, tw + 8, 15);
+        ctx.fillStyle = '#fff'; ctx.fillText(label, ax, ay - (s >= 10 ? s * 1.6 : 14));
+      }
+    }
+
+    // 홀로 사는 사람의 움막
+    drawHermits() {
+      const sim = this.sim, ctx = this.ctx, s = this.cam.s;
+      const seen = new Set();
+      for (const h of sim.humans) {
+        if (!h.alive || !h.hermit || h.hermit.partnerOf || h.hermit.followerOf) continue;
+        const H = h.hermit, key = Math.round(H.x) + ':' + Math.round(H.y);
+        if (seen.has(key)) continue; seen.add(key);
+        const [x, y] = this.toScreen(H.x, H.y);
+        if (s < 6) { ctx.fillStyle = '#9a7a52'; ctx.fillRect(x - 1.5, y - 1.5, 3, 3); continue; }
+        const b = H.hut || 0, w = s * 0.55, hh = s * 0.5;
+        ctx.fillStyle = '#7a5a36';
+        ctx.globalAlpha = 0.4 + b * 0.6;
+        ctx.beginPath(); ctx.moveTo(x - w / 2, y); ctx.lineTo(x, y - hh * Math.max(0.3, b)); ctx.lineTo(x + w / 2, y); ctx.fill();
+        ctx.globalAlpha = 1;
+        if (b >= 1) { ctx.fillStyle = '#3b2a18'; ctx.fillRect(x - w * 0.1, y - hh * 0.35, w * 0.2, hh * 0.35); }
+        if (s >= 18 && H.sage) { ctx.font = '11px sans-serif'; ctx.textAlign = 'center'; ctx.fillStyle = '#ffe9a8'; ctx.fillText('현자의 움막', x, y + 12); }
+      }
+    }
+
+    // 신이 집어 든 사람: 마우스를 따라다닌다
+    drawCarried() {
+      const h = this.carrying, b = this.brush;
+      if (!h || !h.alive || !b) return;
+      const ctx = this.ctx;
+      const [x, y] = this.toScreen(b.x, b.y);
+      const s = Math.max(this.cam.s, 14);
+      ctx.save(); ctx.globalAlpha = 0.85;
+      ctx.fillStyle = 'rgba(255,240,180,0.25)'; ctx.beginPath(); ctx.arc(x, y - s * 0.4, s * 0.8, 0, 7); ctx.fill();
+      this.drawPerson(h, x, y - s * 0.3 + Math.sin(this.frame * 0.15) * 3, s, h.tribe ? h.tribe.color : '#f4f4f4');
+      ctx.restore();
+      ctx.font = 'bold 12px sans-serif'; ctx.textAlign = 'center'; ctx.fillStyle = '#ffe9a8';
+      ctx.fillText(`${h.name}을(를) 들고 있음`, x, y + 18);
     }
 
     drawBrush() {

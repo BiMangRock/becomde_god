@@ -56,6 +56,11 @@
           this.add({ t: 'slash', x, y, life: 18, max: 18, a: R(-0.6, 0.6) });
           for (let i = 0; i < 6; i++) this.add({ t: 'spark', x, y, z: 0.5, vx: R(-0.04, 0.04), vy: R(-0.03, 0.03), vz: R(0.02, 0.08), g: 0.01, life: R(10, 20), c: '230,60,60', size: 2 });
           break;
+        case 'quake':
+          this.shake = Math.max(this.shake, 16);
+          for (let i = 0; i < 60; i++) { const a = R(0, 6.28), d = R(0, 8); this.add({ t: 'smoke', x: x + Math.cos(a) * d, y: y + Math.sin(a) * d, z: 0, vx: R(-0.01, 0.01), vy: R(-0.01, 0.01), vz: R(0.005, 0.02), life: R(60, 140), c: '150,130,100', size: R(5, 12), grow: 0.1 }); }
+          for (let i = 0; i < 40; i++) { const a = R(0, 6.28), s = R(0.03, 0.15), d = R(0, 6); this.add({ t: 'debris', x: x + Math.cos(a) * d, y: y + Math.sin(a) * d, z: 0.1, vx: Math.cos(a) * s * 0.3, vy: Math.sin(a) * s * 0.2, vz: R(0.05, 0.2), g: 0.02, life: R(30, 60), c: '110,95,80', size: R(2, 3.5), rot: 0, vr: R(-0.3, 0.3) }); }
+          break;
         case 'escape':
           this.shake = Math.max(this.shake, 4);
           for (let i = 0; i < 30; i++) { const a = R(0, 6.28), s = R(0.05, 0.2); this.add({ t: 'debris', x, y, z: 0.3, vx: Math.cos(a) * s, vy: Math.sin(a) * s * 0.6, vz: R(0.1, 0.3), g: 0.02, life: R(30, 60), c: '110,105,98', size: R(2, 3.5), rot: 0, vr: R(-0.3, 0.3) }); }

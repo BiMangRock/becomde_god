@@ -119,7 +119,8 @@
     // 몸의 병
     if (h.sick) {
       h.sick.left--;
-      h.health -= 1.2 * (1.3 - h.body / 100);
+      h.health -= 1.2 * (1.3 - h.body / 100) * (h.sick.name === '역병' ? 2.2 : 1);
+      G.Migrate.spread(sim, h);
       if (h.state !== 'jailed' && h.state !== 'fight' && chance(0.3)) { h.state = 'rest'; h.timer = 120; }
       if (h.health <= 0) return sim.kill(h, h.sick.name);
       if (h.sick.left <= 0) { h.log(sim, `${h.sick.name}에서 나았다`); h.sick = null; }
