@@ -147,6 +147,7 @@
         case 'rest': case 'party': case 'hobby': if (this.timer <= 0) this.state = 'idle'; break;
         case 'fight': this.doFight(sim); break;
         case 'busy': if (this.timer <= 0) this.finishBusy(sim); break;
+        case 'held': if (!this.held) this.state = 'idle'; break;
         case 'jailed':
           if (!this.jail) { this.state = 'idle'; break; }
           if (chance(0.01)) { const t = sim.tribeById(this.jail.tid); if (t && t.jail) { const p = G.Crime.jailSpot(t); this.x = p.x; this.y = p.y; } }
@@ -289,6 +290,7 @@
     }
 
     goTo(sim, x, y, task) {
+      if (this.held || this.jail) return false;
       const w = sim.world;
       x = clamp(x, 0.5, w.w - 0.5); y = clamp(y, 0.5, w.h - 0.5);
       if (!w.walkable(x, y)) {
@@ -466,7 +468,7 @@
       const o = sim.tribeById(toId);
       if (!o || !o.alive || !this.carry) return;
       const r = this.carry, qty = this.carryAmt;
-      const pay = Math.min(Math.floor(o.price(r) * 0.95 * qty), Math.floor(o.treasury));
+      const pay = G.Crime2.fraud(sim, this, o, Math.min(Math.floor(o.price(r) * 0.95 * qty), Math.floor(o.treasury)));
       o.treasury -= pay; o.stock[r] += qty; this.gold += pay;
       this.carry = null; this.carryAmt = 0;
       const profit = pay - this.tradeCost;
@@ -493,6 +495,7 @@
     raid(sim, foeId) {
       const foe = sim.tribeById(foeId);
       if (!foe || !this.tribe || !this.tribe.wars.has(foeId)) return;
+      if (G.Crime2.takeHostage(sim, this, foe)) return;
       const enemy = sim.nearestEnemy(this, 6);
       if (enemy) { this.target = enemy; this.state = 'fight'; return; }
       const food = Math.min(5, Math.floor(foe.stock.food));

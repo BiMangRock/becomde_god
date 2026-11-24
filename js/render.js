@@ -297,6 +297,10 @@
       if (h.job === J.WARRIOR || h.job === J.PRIEST || h.job === J.MERCHANT) {
         ctx.fillStyle = color; ctx.fillRect(x - 2.6 * u, bodyTop + 4 * u, 5.2 * u, 1.2 * u); // 부족 띠
       }
+      if (h.held) {
+        ctx.strokeStyle = '#a07840'; ctx.lineWidth = Math.max(1, 0.8 * u);
+        ctx.beginPath(); ctx.moveTo(x - 3 * u, bodyTop + 3 * u); ctx.lineTo(x + 3 * u, bodyTop + 4 * u); ctx.moveTo(x - 3 * u, bodyTop + 5 * u); ctx.lineTo(x + 3 * u, bodyTop + 6 * u); ctx.stroke();
+      }
       if (h.jail) {
         ctx.fillStyle = '#555';
         for (let k = 0; k < 3; k++) ctx.fillRect(x - 2.8 * u, bodyTop + (2 + k * 2) * u, 5.6 * u, 0.7 * u);

@@ -30,6 +30,8 @@
     if ((h.stress || 0) > 60) u *= 1.5;
     if (h.outlaw) u *= 2.5;
     if (h.faith > 70) u *= 0.7;
+    // 전과가 많을수록 다시 죄를 짓기 쉽고, 갱생할수록 줄어든다
+    u *= Math.pow(1.4, Math.min(4, h.convictions || 0)) * (1 - (h.rehab || 0) / 150) * (h.redeemed ? 0.5 : 1);
     u *= (0.6 + h.p.impulse / 125) * (1.4 - h.p.agree / 125);
     if (h.addiction > 50 && h.gold < 5) u *= 1.6;
     if (h.drunk > 0) u *= 1.5;
@@ -42,6 +44,8 @@
     if (h.crimes.length > 12) h.crimes.shift();
     if (known) h.notoriety = clamp(h.notoriety + SEV[type] * 8, 0, 100);
     sim.stats.crimes = (sim.stats.crimes || 0) + 1;
+    sim.stats.byType = sim.stats.byType || {};
+    sim.stats.byType[type] = (sim.stats.byType[type] || 0) + 1;
     return c;
   };
 
@@ -60,6 +64,7 @@
       if (r && (r.v >= 70 || w.partner === crim || w.lover === crim) && !w.has('정직한') && chance(0.7)) continue;
       let p = w.job === J.GUARD ? 0.9 : 0.45;
       if (crim.has('교활한')) p *= 0.6;
+      if (crim.crimeSkill) p *= 1 - crim.crimeSkill / 120;
       if (!chance(p)) continue;
       seen = true;
       G.Mind.adj(sim, w, crim, { trust: type === '살인' ? -70 : -30, fear: type === '살인' ? 35 : 5 });
@@ -88,6 +93,8 @@
   C.tick = (sim, h) => {
     if (!h.adult || !h.alive) return;
     if (h.jail) return C.prisonTick(sim, h);
+    G.Crime2.tick(sim, h);
+    if (!h.alive || h.held || h.jail) return;
     // 수배자는 달아나기도 한다
     if (h.wanted && h.tribe && !h.tribe.bandit && chance((h.has('교활한') || h.has('겁많은') ? 0.08 : 0.03))) return C.flee(sim, h, '수배를 피해');
     const u = C.urge(h);
@@ -212,13 +219,14 @@
       if (k.has('교활한')) p *= 0.5;
       if (chance(p)) {
         sim.unsolved.splice(i, 1);
-        if (t) t.log(sim, `수사 끝에 ${cs.victim} 살해 사건의 범인이 ${josa(k.name, '으로/로')} 밝혀졌습니다`);
-        else sim.event(`${cs.victim} 살해 사건의 범인이 ${josa(k.name, '으로/로')} 밝혀졌습니다`, '#d06060', k.x, k.y);
+        const kind = cs.type === '독살' ? '독살' : '살해';
+        if (t) t.log(sim, `수사 끝에 ${cs.victim} ${kind} 사건의 범인이 ${josa(k.name, '으로/로')} 밝혀졌습니다`);
+        else sim.event(`${cs.victim} ${kind} 사건의 범인이 ${josa(k.name, '으로/로')} 밝혀졌습니다`, '#d06060', k.x, k.y);
         for (const p2 of sim.humans) {
           const pr = p2.alive && p2.rel.get(k.id);
           if (pr) G.Mind.adj(sim, p2, k, { trust: -50, fear: 20 });
         }
-        C.report(sim, k, '살인', cs.victim);
+        C.report(sim, k, cs.type || '살인', cs.victim);
       }
     }
   };
@@ -277,7 +285,8 @@
   // ---------------- 재판 ----------------
   C.trial = (sim, t, c) => {
     const open = c.crimes.filter((x) => x.known && !x.punished);
-    let sev = open.reduce((s, x) => s + SEV[x.type], 0) || 1;
+    let sev = open.reduce((s, x) => s + (SEV[x.type] || 1), 0) || 1;
+    c.stalking = null;
     sev *= 1 + c.convictions * 0.5;
     for (const x of open) x.punished = true;
     c.convictions++;
@@ -291,18 +300,20 @@
     }
     if (c.job === J.CHIEF) c.job = J.GATHER;
     const chief = t.chief;
-    let mult = 1;
-    if (chief && chief.has('냉정한')) mult = 1.5;
-    if (chief && chief.has('너그러운')) mult = 0.6;
+    let mult = G.Crime2.bribe(sim, t, c, chief, sev);
+    const habitual = c.convictions >= 3;
+    if (habitual) { mult *= 2; c.log(sim, '상습범으로 무거운 벌을 받게 되었다'); }
+    if (chief && chief.has('냉정한')) mult *= 1.5;
+    if (chief && chief.has('너그러운')) mult *= 0.6;
     const judge = chief ? `족장 ${chief.name}` : '부족 회의';
     const murder = open.some((x) => x.type === '살인');
     let verdict;
     const jailFull = t.jail && sim.humans.filter((h) => h.jail && h.jail.tid === t.id).length >= 6;
     if (t.jail && !jailFull && !(murder && chance(chief && chief.has('냉정한') ? 0.5 : 0.25))) {
-      const years = Math.min(15, Math.max(1, Math.round(sev * 1.5 * mult)));
+      const years = Math.min(habitual ? 20 : 15, Math.max(1, Math.round(sev * 1.5 * mult)));
       C.imprison(sim, t, c, years);
       verdict = `감옥 ${years}년`;
-    } else if (sev >= 6 || murder) {
+    } else if (sev >= 6 || murder || (habitual && chance(0.5))) {
       C.exile(sim, t, c);
       verdict = '추방';
     } else {
@@ -342,11 +353,12 @@
     // 밥은 부족이 준다
     if (c.hunger > 50 && t.stock.food >= 1) { t.stock.food -= 1; c.hunger = Math.max(0, c.hunger - 40); }
     G.Social.addMood(sim, c, 'imprisoned');
+    G.Crime2.prisonTick(sim, c, t);
     if (sim.year >= c.jail.until) { C.release(sim, c); return; }
     // 탈옥
     let guards = 0;
     sim.near(t.jail.x, t.jail.y, 6, (o) => { if (o.job === J.GUARD && o.tribe === t) guards++; });
-    let p = 0.003 * (c.has('교활한') ? 2.5 : 1) * (c.has('용감한') ? 1.4 : 1) * ((c.stress || 0) > 70 ? 1.5 : 1) * (guards ? 0.3 : 1.4);
+    let p = 0.0018 * (c.has('교활한') ? 2.5 : 1) * (c.has('용감한') ? 1.4 : 1) * ((c.stress || 0) > 70 ? 1.5 : 1) * (guards ? 0.3 : 1.4);
     if (c.jail.until - sim.year > 5) p *= 1.5;
     // 바깥의 연인이나 친구가 도와주기도 한다
     let helper = null;
@@ -363,6 +375,7 @@
     const t = sim.tribeById(c.jail.tid);
     c.jail = null; c.state = 'idle';
     c.notoriety = Math.floor(c.notoriety * 0.6);
+    G.Crime2.onRelease(sim, c);
     G.Social.addMood(sim, c, 'freed');
     c.log(sim, why ? `${why} 풀려났다` : '형기를 마치고 풀려났다');
     if (t) t.log(sim, `${josa(c.name, '이/가')} 형기를 마치고 풀려났습니다`, false);

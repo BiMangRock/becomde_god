@@ -302,6 +302,7 @@
       h.carry = 'food'; h.carryAmt = K.food;
       h.hunts = (h.hunts || 0) + 1;
       sim.stats.hunts = (sim.stats.hunts || 0) + 1;
+      if (!W.isBeast(a)) G.Crime2.poach(sim, h, a);
       if (a.kind === 'tiger' || a.kind === 'bear') {
         h.log(sim, `${josa(K.name, '을/를')} 쓰러뜨렸다`);
         sim.event(`${josa(h.name, '이/가')} ${josa(K.name, '을/를')} 쓰러뜨렸습니다`, '#f5d76e', a.x, a.y);

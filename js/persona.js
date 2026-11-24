@@ -102,6 +102,7 @@
       case '지혜': m *= 0.7 + Math.min(1, o.knowledge / 40); break;
     }
     m *= 1 + P.shared(h, o) * 0.15;
+    if (o.convictions && !o.redeemed && !h.convictions) m *= 0.55; // 전과자는 연애에서 불리하다
     return clamp(m, 0.3, 2.5);
   };
   P.shared = (a, b) => a.likes.filter((x) => b.likes.includes(x)).length;
@@ -250,7 +251,7 @@
         sim.near(h.x, h.y, 4, (o) => { if (!opp && o !== h && o.adult && o.gold >= 3 && !o.jail) opp = o; });
         if (opp && h.gold >= 3) {
           const stake = Math.min(randi(3, 12), Math.floor(h.gold), Math.floor(opp.gold));
-          const [win, lose] = chance(0.5) ? [h, opp] : [opp, h];
+          const [win, lose] = G.Crime2.cheat(sim, h, opp) || chance(0.5) ? [h, opp] : [opp, h];
           win.gold += stake; lose.gold -= stake;
           G.Social.bump(sim, lose, win, -2);
           if (lose.p.impulse > 65 && chance(0.3)) G.Social.argue(sim, lose, win, G.Social.rel(lose, win));

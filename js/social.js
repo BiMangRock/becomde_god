@@ -119,6 +119,7 @@
     if (!r) {
       r = { v: 0, love: 0, trust: 0, respect: 0, fear: 0, grudge: 0, jealousy: 0, owe: 0, lent: 0, name: o.name };
       if (G.Mind.siblings(h, o)) { r.v = 50; r.trust = 40; r.sibling = true; }
+      else if (o.convictions && !S.isFamily(h, o.id)) { r.trust = G.Crime2.stigma(o); r.v = Math.min(r.v, -5); }
       h.rel.set(o.id, r);
       if (h.rel.size > REL_CAP) S.prune(h, o.id);
     }
@@ -165,6 +166,10 @@
     if (h.affair === id) return '비밀 연인';
     const o = sim.byId.get(id);
     if (r.sibling) return '형제자매';
+    if (o && o.stalking === h.id) return '스토커';
+    if (h.stalking === id) return '집착 대상';
+    if (r.blackmailer) return '협박범';
+    if (r.blackmailing) return '약점 잡은 사람';
     if (r.spouse) return o ? '전 배우자' : '먼저 간 배우자';
     if ((r.grudge || 0) >= 70) return '원수';
     if (r.rival && (r.jealousy || 0) >= 40) return '연적';
@@ -177,6 +182,7 @@
       return back && back.love >= 50 ? '썸' : '짝사랑';
     }
     if ((r.trust || 0) >= 70 && r.v >= 50) return '은인';
+    if (r.cellmate && r.v >= 20) return '감방 동료';
     if (r.v >= 75) return '절친';
     if ((r.respect || 0) >= 75) return '존경하는 사람';
     if ((r.fear || 0) >= 60) return '두려운 사람';
@@ -356,6 +362,7 @@
     if (h.lover === o || h.partner === o) { S.bump(sim, h, o, 0, -rand(4, 9)); S.bump(sim, o, h, 0, -rand(3, 7)); }
     S.addMood(sim, h, 'argued'); S.addMood(sim, o, 'argued');
     G.Mind.onMeet(sim, h, o, 'argue'); G.Mind.onMeet(sim, o, h, 'argue');
+    if (h.partner === o) G.Crime2.domestic(sim, h, o);
     h.say('#', 70); o.say('#', 70);
     const hot = h.has('용감한') || h.has('충동적인') || S.hasMood(h, 'jealous') || S.hasMood(h, 'discord') || h.happy < 25 || (r.grudge || 0) > 40;
     if (hot && r.v < -30 && chance(0.3)) {
@@ -383,6 +390,7 @@
       S.bump(sim, h, o, -5, -20);
       S.addMood(sim, h, 'rejected');
       if (h.has('냉정한') || h.has('질투심 많은') || h.has('충동적인')) G.Mind.adj(sim, h, o, { grudge: 15 });
+      G.Crime2.startStalking(sim, h, o);
       h.log(sim, `${o.name}에게 고백했다가 거절당했다`);
       h.say('…', 120);
     }

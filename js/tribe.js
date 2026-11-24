@@ -88,7 +88,8 @@
     deposit(sim, h) {
       const r = h.carry, amt = h.carryAmt;
       if (!r || amt <= 0 || !(r in this.stock)) { h.carry = null; h.carryAmt = 0; return; }
-      const pay = Math.min(Math.floor(this.price(r) * amt * 0.6), Math.floor(this.treasury));
+      const stigma = h.convictions && !h.redeemed ? 0.6 : 1; // 전과자는 품삯이 깎인다
+      const pay = Math.min(Math.floor(this.price(r) * amt * 0.6 * stigma), Math.floor(this.treasury));
       this.stock[r] += amt; this.treasury -= pay; h.gold += pay;
       h.carry = null; h.carryAmt = 0;
       this.giveRation(h);
@@ -167,6 +168,11 @@
           const gap = want[j] * n - (cnt[j] || 0);
           if (gap > bestGap) { bestGap = gap; job = j; }
         }
+      }
+      // 전과자는 하찮은 일만 맡는다 (족장이 너그러우면 예외)
+      if (h.convictions && !h.redeemed && !(this.chief && this.chief.has('너그러운')) && ![J.GATHER, J.WOOD, J.MINE, J.FARMER].includes(job)) {
+        job = pick([J.GATHER, J.WOOD, J.MINE]);
+        if (!h.jobDenied) { h.jobDenied = true; h.log(sim, '전과 때문에 원하는 일을 맡지 못했다'); }
       }
       const old = h.job;
       h.job = job || J.GATHER;
@@ -249,6 +255,16 @@
         const w = sim.world;
         for (let y = Math.floor(this.cy - 8); y <= this.cy + 8; y++) for (let x = Math.floor(this.cx - 8); x <= this.cx + 8; x++) {
           if (w.inb(x, y) && w.farm[w.idx(x, y)]) w.fert[w.idx(x, y)] = Math.max(w.fert[w.idx(x, y)], 2.2);
+        }
+      }
+
+      // 경비병이 없어도 마을 사람들이 수배자를 붙잡아 재판한다
+      if (!this.bandit) {
+        for (const m of [...this.members]) {
+          if (!m.wanted || m.jail || m.held || m === this.chief || !chance(0.5)) continue;
+          m.wanted = false;
+          m.log(sim, '마을 사람들에게 붙잡혔다');
+          G.Crime.trial(sim, this, m);
         }
       }
 
