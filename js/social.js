@@ -404,6 +404,7 @@
       S.addMood(sim, h, 'rejected');
       if (h.has('냉정한') || h.has('질투심 많은') || h.has('충동적인')) G.Mind.adj(sim, h, o, { grudge: 15 });
       G.Crime2.startStalking(sim, h, o);
+      G.Crime3.onRejected(sim, h, o);
       h.log(sim, `${o.name}에게 고백했다가 거절당했다`);
       h.say('…', 120);
     }
@@ -516,6 +517,7 @@
 
   S.wed = (sim, a, b) => {
     a.partner = b; b.partner = a;
+    a.wedAt = sim.year; b.wedAt = sim.year;
     S.rel(a, b).spouse = true; S.rel(b, a).spouse = true;
     a.lover = null; b.lover = null;
     for (const x of [a, b]) { S.addMood(sim, x, 'wedding'); x.say('♥', 180); }
@@ -587,6 +589,9 @@
     if (S.hasMood(mom, 'blessed') || S.hasMood(mom, 'fertile')) risk = 0;
     sim.near(mom.x, mom.y, 4, (o) => { if (o.job === J.PRIEST) risk *= 0.3; if (o.job === J.HEALER) risk *= 0.15; });
     if (chance(risk)) sim.kill(mom, '난산');
+    // 원치 않는 임신이었거나 굶주림 속이면 아이를 버리기도 한다
+    if (mom.alive && c.alive) G.Crime3.onBirth(sim, mom, c);
+    else mom.unwantedPreg = false;
     return c;
   };
 

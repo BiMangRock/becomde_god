@@ -49,8 +49,9 @@
   // 전과자에게 처음 갖는 불신
   X.stigma = (o) => {
     if (!o.convictions) return 0;
-    const base = -(15 + 10 * Math.min(3, o.convictions));
-    return o.redeemed ? Math.round(base * 0.3) : base;
+    // 성범죄 전과와 낙인은 더 크게, 더 오래 남는다
+    const base = -(15 + 10 * Math.min(3, o.convictions) + (o.sexOffender ? 15 : 0) + (o.branded ? 15 : 0));
+    return o.redeemed ? Math.round(base * (o.sexOffender ? 0.6 : 0.3)) : base;
   };
 
   X.onRelease = (sim, c) => {
@@ -294,6 +295,8 @@
     const bandits = sim.tribeById(H.tid), home = sim.tribeById(H.from);
     S.addMood(sim, v, H.forced ? 'forcedWed' : 'captive');
     if (v.hunger > 60 && bandits && bandits.stock.food >= 1) { bandits.stock.food--; v.hunger -= 40; }
+    // 몸값이 오지 않으면 팔려 가거나 처형되기도 한다
+    if (G.Crime3.heldTick(sim, v, H, bandits, home)) return;
     let how = null;
     if (!bandits) how = '도적단이 무너져';
     else if (home && home.treasury >= H.ransom && chance(0.12)) {

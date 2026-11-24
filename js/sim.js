@@ -17,6 +17,7 @@
     heal: { name: '치유', cost: 20, icon: '✚', desc: '주변 사람의 상처와 마음의 병, 스트레스, 원한을 씻어 준다' },
     fertility: { name: '다산', cost: 20, icon: '✿', desc: '주변 부부에게 아이가 생기기 쉬워지고 출산이 안전해진다' },
     discord: { name: '불화', cost: 15, icon: '☁', desc: '주변 사람들이 서로 미워하고 다툰다' },
+    judgment: { name: '신의 재판', cost: 30, icon: '⚖', desc: '한 사람을 누른다. 숨긴 죄가 있으면 번개로 드러내고, 누명을 썼으면 신탁으로 벗겨 준다' },
     raise: { name: '땅 올리기', cost: 1, icon: '▲', desc: '누르고 있으면 땅이 솟는다' },
     lower: { name: '땅 내리기', cost: 1, icon: '▼', desc: '누르고 있으면 땅이 꺼진다' },
   };
@@ -192,6 +193,7 @@
       // 마음·범죄·질병·결혼·임신 (달력 기준). 수다와 연애 감정은 activityTick (활동 기준)
       G.Social.lifeTick(this);
       G.Crime.investigate(this);
+      G.Crime3.social(this);
       this.tribelessGathering();
       if (this.humans.length > this.stats.maxPop) this.stats.maxPop = this.humans.length;
       const ms = [20, 50, 100, 200, 400, 800];
@@ -371,6 +373,7 @@
     // ---------------- 해마다 ----------------
     yearly() {
       for (const t of this.tribes) if (t.alive) t.yearly(this, 'life');
+      G.Crime3.yearly(this);
       if (!this.drought && this.year > 3 && chance(0.06)) {
         this.drought = randi(1, 2);
         this.event('가뭄이 시작되었습니다. 땅이 메마릅니다', '#e0a040');
@@ -521,7 +524,7 @@
           if (dead.length) this.event(`번개가 ${dead.map((d) => d.name).join(', ')}의 목숨을 앗아갔습니다`, '#fff3a0', x, y);
           break;
         }
-        case 'cupid': return { ok: false, msg: '사람을 눌러 고르세요' };
+        case 'cupid': case 'judgment': return { ok: false, msg: '사람을 눌러 고르세요' };
         case 'fertility': G.Social.fertility(this, x, y); break;
         case 'heal': G.Mind.heal(this, x, y); break;
         case 'discord': G.Social.discord(this, x, y); break;
@@ -543,6 +546,7 @@
         }
       }
       this.faith -= P.cost;
+      G.Crime3.onPower(this, kind, x, y);
       return { ok: true };
     }
 

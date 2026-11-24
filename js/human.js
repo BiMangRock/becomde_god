@@ -522,6 +522,7 @@
     raid(sim, foeId) {
       const foe = sim.tribeById(foeId);
       if (!foe || !this.tribe || !this.tribe.wars.has(foeId)) return;
+      if (G.Crime3.raid(sim, this, foe)) return;
       if (G.Crime2.takeHostage(sim, this, foe)) return;
       const enemy = sim.nearestEnemy(this, 6);
       if (enemy) { this.target = enemy; this.state = 'fight'; return; }

@@ -299,6 +299,8 @@
     a.hp -= rand(10, 18) * (1 + bonus) * (h.has('용감한') ? 1.2 : 1) * pro;
     h.say('➶', 40);
     sim.effects.push({ kind: 'claw', x: a.x, y: a.y, age: 0, ttl: 15 });
+    G.Crime3.huntAccident(sim, h);
+    if (!h.alive) return;
     if (K.flee) { a.flee = 30; a.tx = a.x + rand(-5, 5); a.ty = a.y + rand(-5, 5); }
     if (K.fight) {
       const [d0, d1] = K.dmg || [3, 9];

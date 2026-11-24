@@ -17,7 +17,8 @@
       this.color = this.bandit ? G.pick(['#6e6e6e', '#5b4a4a', '#4f5560']) : G.TRIBE_COLORS[(this.id - 1) % G.TRIBE_COLORS.length];
       this.tools = 0;        // 대장장이가 만든 도구
       // 부족의 법: 바람(간통)을 죄로 볼 것인가
-      this.law = { adultery: !this.bandit && chance(0.4) };
+      // 간통·부부 사이 강요·사형·명예·광신 (crime3.js)
+      this.law = G.Crime3.makeLaw(this.bandit);
       this.jail = null;      // 감옥 위치
       this.farmCount = 0;
       this.cx = cx; this.cy = cy;
@@ -90,7 +91,7 @@
     deposit(sim, h) {
       const r = h.carry, amt = h.carryAmt;
       if (!r || amt <= 0 || !(r in this.stock)) { h.carry = null; h.carryAmt = 0; return; }
-      const stigma = h.convictions && !h.redeemed ? 0.6 : 1; // 전과자는 품삯이 깎인다
+      const stigma = h.labor || h.enslaved ? 0 : h.convictions && !h.redeemed ? 0.6 : 1; // 전과자는 품삯이 깎이고, 노역 중이거나 노예면 받지 못한다
       const pay = Math.min(Math.floor(this.price(r) * amt * 0.6 * stigma), Math.floor(this.treasury));
       this.stock[r] += amt; this.treasury -= pay; h.gold += pay;
       h.carry = null; h.carryAmt = 0;
@@ -237,7 +238,8 @@
       if (season === 2 || season === 0) {
         const avgHappy = this.members.reduce((s, m) => s + m.happy, 0) / this.members.length;
         const p = season === 2 ? 0.55 : 0.25;
-        if (this.members.length >= 6 && avgHappy > 50 && this.stock.food > this.members.length * 3 && sim.year - (this.lastFestival || -99) >= 2 && chance(p)) {
+        // 흉흉한 일이 이어지면 축제를 열지 않는다
+        if (!(this.dread > sim.year) && this.members.length >= 6 && avgHappy > 50 && this.stock.food > this.members.length * 3 && sim.year - (this.lastFestival || -99) >= 2 && chance(p)) {
           G.Social.festival(sim, this, season === 2 ? '추수 축제' : '봄맞이 축제');
         }
       }
@@ -283,6 +285,8 @@
           if (!m.wanted || m.jail || m.held || m === this.chief || !chance(0.5)) continue;
           m.wanted = false;
           m.log(sim, '마을 사람들에게 붙잡혔다');
+          // 성난 사람들이 재판 없이 죽이기도 한다
+          if (G.Crime3.lynch(sim, this, m)) continue;
           G.Crime.trial(sim, this, m);
         }
       }
@@ -366,6 +370,7 @@
           if (c.has('겁많은')) delta += 2;
         }
         if (this.stock.food < this.members.length) delta -= 2;
+        delta += G.Crime3.atrocityPenalty(this, o, sim.year); // 학살의 기억
         sim.changeRel(this, o, delta);
         const rel = sim.getRel(this, o);
         const atWar = this.wars.has(o.id);

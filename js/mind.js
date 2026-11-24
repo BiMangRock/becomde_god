@@ -248,6 +248,7 @@
 
   M.treat = (sim, healer, p) => {
     if (!p || !p.alive || G.dist(p.x, p.y, healer.x, healer.y) > 3) return;
+    if (G.Crime3.quack(sim, healer, p)) return; // 약초를 잘 모르면 오히려 해치기도 한다
     const herbal = healer.tribe && healer.tribe.has('약초학') ? 1.5 : 1;
     p.health = Math.min(p.maxHp, p.health + 30 * herbal);
     if (p.sick && chance(0.6 * herbal)) { p.log(sim, `치료사 ${healer.name} 덕분에 ${josa(p.sick.name, '이/가')} 나았다`); p.sick = null; }

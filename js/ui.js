@@ -115,7 +115,7 @@
         <h2>${esc(h.name)} <span class="muted">${h.gender === 'M' ? '남' : '여'} · ${Math.floor(h.age)}세</span></h2>
         <div>${t ? `<span class="chip link" data-act="tribe" data-id="${t.id}"><span class="dot" style="background:${t.color}"></span> ${esc(t.name)}</span>` : '<span class="chip">부족 없음</span>'}
           <span class="chip" title="${esc(G.JOB_DESC[h.job] || '')}">${esc(h.job)}</span>${h.traits.map((x) => `<span class="chip" title="${esc(G.TRAIT_DESC[x] || '')}">${esc(x)}</span>`).join('')}
-          ${h.jail ? '<span class="chip" style="color:#ffb070">수감 중</span>' : ''}${h.wanted ? '<span class="chip" style="color:#ff6b6b">수배 중</span>' : ''}${h.outlaw ? '<span class="chip" style="color:#bbb">무법자</span>' : ''}</div>
+          ${h.jail ? '<span class="chip" style="color:#ffb070">수감 중</span>' : ''}${h.wanted ? '<span class="chip" style="color:#ff6b6b">수배 중</span>' : ''}${h.outlaw ? '<span class="chip" style="color:#bbb">무법자</span>' : ''}${h.branded ? '<span class="chip" style="color:#c99">낙인</span>' : ''}${h.labor ? '<span class="chip" style="color:#d9b26a">강제노역 중</span>' : ''}${h.enslaved ? '<span class="chip" style="color:#ff9a7a">노예</span>' : ''}${h.cult ? `<span class="chip" style="color:#c9a0ff">교주 (신자 ${h.cult.followers.length}명)</span>` : ''}</div>
         <p class="muted" style="margin:8px 0">지금 ${STATE_TEXT(h, sim)}${h.pregnant ? ` · <span style="color:#ff9ac1">임신 ${Math.max(1, Math.round((1 - h.pregnant / (G.CFG.TPY * 0.75)) * 9))}개월</span>` : ''}</p>
         ${this.bars(h)}
         ${this.personaBlock(h)}
@@ -185,17 +185,21 @@
     }
 
     crimeBlock(h) {
-      if (!h.crimes || (!h.crimes.length && !h.notoriety && !h.convictions && !h.stalking)) return '';
+      if (!h.crimes || (!h.crimes.length && !h.notoriety && !h.convictions && !h.stalking && (h.wg || 0) < 30)) return '';
       const list = h.crimes.slice().reverse().map((c) => {
         const tag = c.fake ? (c.revealed ? '<span style="color:#7fe0a8">· 누명 (벗겨짐)</span>' : '<span style="color:#ffb070">· 누명</span>')
+          : c.sanctioned ? '<span class="muted">· 부족의 법이 허락함</span>'
+          : c.selfDefense ? '<span style="color:#7fe0a8">· 정당방위 (무죄)</span>'
+          : c.acquitted ? '<span style="color:#ffb070">· 증거 부족으로 무죄</span>'
+          : c.expired ? '<span class="muted">· 시효가 지나 묻힘</span>'
           : c.known ? (c.punished ? '<span class="muted">· 처벌받음</span>' : '<span style="color:#ff8a80">· 드러남</span>') : '<span style="color:#c9a0ff">· 아무도 모름</span>';
-        return `<li><span class="yr">${c.y}년</span>${esc(c.type)}${c.victim ? ` (${esc(c.victim)})` : ''} ${tag}</li>`;
+        return `<li><span class="yr">${c.y}년</span>${esc(c.type)}${c.negligent ? ' (과실)' : ''}${c.victim ? ` (${esc(c.victim)})` : ''} ${tag}</li>`;
       }).join('');
       const ex = h.convictions ? (h.redeemed ? '<span style="color:#7fe0a8">갱생함</span>' : `전과자 · 갱생 ${Math.round(h.rehab || 0)}/85`) : '없음';
       const stalk = h.stalking ? (() => { const o = this.app.sim.byId.get(h.stalking); return o ? `<span class="k">집착</span><span style="color:#ff8a80">${esc(o.name)}을(를) 스토킹 중</span>` : ''; })() : '';
       return `<h4>죄와 벌</h4>
         <div class="kv"><span class="k">악명</span><span>${Math.round(h.notoriety)}</span><span class="k">유죄 판결</span><span>${h.convictions}번${h.convictions >= 3 ? ' (상습범)' : ''}</span>
-        <span class="k">전과</span><span>${ex}</span>${h.crimeSkill ? `<span class="k">범죄 솜씨</span><span>${Math.round(h.crimeSkill)}</span>` : ''}${h.murders ? `<span class="k">살인</span><span style="color:#ff6b6b">${h.murders}명</span>` : ''}${stalk}</div>
+        <span class="k">전과</span><span>${ex}${h.sexOffender ? ' · 성범죄 전과' : ''}</span>${(h.wg || 0) >= 30 ? `<span class="k">세상에 대한 원한</span><span style="color:${h.wg >= 60 ? '#ff8a80' : '#d9b26a'}">${Math.round(h.wg)}</span>` : ''}${h.crimeSkill ? `<span class="k">범죄 솜씨</span><span>${Math.round(h.crimeSkill)}</span>` : ''}${h.murders ? `<span class="k">살인</span><span style="color:#ff6b6b">${h.murders}명</span>` : ''}${stalk}</div>
         <ul class="story">${list}</ul>`;
     }
 
@@ -269,7 +273,7 @@
           <span class="k">금고</span><span>금화 ${Math.floor(t.treasury)}개</span>
           <span class="k">출생/사망</span><span>${t.births} / ${t.deaths}</span>
           ${t.bandit ? '<span class="k">정체</span><span style="color:#ff8a80">무법자들의 도적단</span>' : ''}
-          <span class="k">법</span><span>${t.law && t.law.adultery ? '간통은 죄 (족장이 재판)' : '간통은 개인 문제'}</span>
+          <span class="k">법</span><span>${esc(G.Crime3.lawText(t.law))}</span>${t.sacrifice ? '<span class="k">제물</span><span style="color:#ff7050">가뭄을 끝내려 제물을 바치려 합니다 (비나 축복으로 막을 수 있음)</span>' : ''}${t.dread > sim.year ? '<span class="k">공포</span><span style="color:#ff8a80">흉흉한 일이 이어져 사람들이 밤길을 두려워함</span>' : ''}
           <span class="k">도구</span><span>${t.tools}개 (일 효율 +${Math.round(t.toolBonus() * 100)}%) · 밭 ${t.farmCount}칸</span>
           <span class="k">치안</span><span>경비병 ${t.members.filter((m) => m.job === G.JOB.GUARD).length}명 · ${t.jail ? '감옥 있음' : '감옥 없음'}${t.crimeHeat > 1 ? ' · <span style="color:#ff8a80">범죄 잦음</span>' : ''}</span>
           <span class="k">분위기</span><span>${(() => { const a = t.members.reduce((s, m) => s + m.happy, 0) / Math.max(1, t.members.length); return a >= 65 ? '활기참' : a >= 50 ? '평온함' : a >= 35 ? '침울함' : '험악함'; })()} · 부부 ${Math.floor(t.members.filter((m) => m.partner && m.partner.alive).length / 2)}쌍${t.lastFestival ? ` · 마지막 축제 ${Math.floor(t.lastFestival)}년` : ''}</span>
@@ -347,7 +351,8 @@
           <span class="k">범죄 종류</span><span style="font-size:12px">${Object.entries(sim.stats.byType || {}).sort((a, b) => b[1] - a[1]).map(([k, n]) => `${k} ${n}`).join(' · ') || '없음'}</span>
           <span class="k">전과자</span><span>${sim.humans.filter((h) => h.alive && h.convictions).length}명 · 갱생 ${sim.humans.filter((h) => h.alive && h.redeemed).length}명 · 인질 ${sim.humans.filter((h) => h.held).length}명</span>
           <span class="k">사법</span><span>체포 ${sim.stats.arrests || 0} · 수감 중 ${sim.humans.filter((h) => h.jail).length} · 탈옥 ${sim.stats.escapes || 0} · 추방 ${sim.stats.exiles || 0}</span>
-          <span class="k">무법자</span><span>${sim.humans.filter((h) => h.alive && h.outlaw).length}명 · 도적단 ${tribes.filter((t) => t.bandit).length}개</span>
+          <span class="k">무법자</span><span>${sim.humans.filter((h) => h.alive && h.outlaw).length}명 · 도적단 ${tribes.filter((t) => t.bandit).length}개 · 노예 ${sim.humans.filter((h) => h.alive && h.enslaved).length}명</span>
+          <span class="k">무거운 사건</span><span>일가족 살인 ${sim.stats.massacres || 0} · 묻지마 ${sim.stats.randomCrimes || 0} · 학살 ${sim.stats.atrocities || 0} · 사형 ${sim.stats.executions || 0} · 사적 제재 ${sim.stats.lynchings || 0} · 마녀사냥 ${sim.stats.witchHunts || 0} · 인신공양 ${sim.stats.sacrifices || 0}${sim.stats.feuds >= 2 ? ` · 피의 복수 최대 ${sim.stats.feuds}대째` : ''}</span>
           <span class="k">마음의 병</span><span>${sim.humans.filter((h) => h.mind).length}명 앓는 중 · 회복 ${sim.stats.recovered || 0}명</span>
           <span class="k">야생 동물</span><span>${Object.keys(G.Wild.KINDS).map((k) => { const n = sim.animals.filter((a) => a.alive && a.kind === k && !a.tame).length; return n ? `${G.Wild.KINDS[k].name} ${n}` : ''; }).filter(Boolean).join(' · ')}</span>
           <span class="k">가축</span><span>${sim.animals.filter((a) => a.alive && a.tame).length}마리 · 길들임 ${sim.stats.tamed || 0}번</span>
