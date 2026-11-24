@@ -65,6 +65,7 @@
 
       // 지형 (1초마다 다시 칠하기)
       if (w.dirty || sim.tick - this.lastPaint > 60) {
+        w.season = sim.season;
         w.paint(this.img.data);
         this.tctx.putImageData(this.img, 0, 0);
         w.dirty = false; this.lastPaint = sim.tick;
@@ -82,6 +83,7 @@
       if (s >= 12) this.drawDetails(x0, y0, x1, y1);
       if (sim.drought) { ctx.fillStyle = 'rgba(220,150,60,0.10)'; ctx.fillRect(0, 0, this.vw, this.vh); }
 
+      this.drawBlood();
       this.drawFires();
       for (const t of this.sim.tribes) if (t.alive) this.drawPen(t);
       this.drawTribes();
@@ -92,6 +94,8 @@
       this.fx.emit(this.sim);
       this.fx.update();
       this.fx.draw(ctx);
+      this.drawClouds();
+      this.drawNight();
       this.drawTribeLabels();
       this.fx.drawFlash(ctx);
       this.drawBrush();
@@ -185,6 +189,135 @@
       }
     }
 
+    // ---------------- 피 흔적 ----------------
+    drawBlood() {
+      const sim = this.sim, ctx = this.ctx, s = this.cam.s, v = this.view;
+      if (!sim.blood || !sim.blood.length) return;
+      for (const b of sim.blood) {
+        if (b.x < v.x0 - 1 || b.x > v.x1 + 1 || b.y < v.y0 - 1 || b.y > v.y1 + 1) continue;
+        const f = Math.min(1, G.Blood.ageDays(sim, b) / 30);   // 0 = 막 생김, 1 = 곧 사라짐
+        const [x, y] = this.toScreen(b.x, b.y);
+        const r = Math.round(150 - 60 * f), g = Math.round(10 + 40 * f), bl = Math.round(10 + 20 * f);
+        const a = (b.kind === 'animal' ? 0.55 : 0.85) * (1 - f * 0.7);
+        ctx.fillStyle = `rgba(${r},${g},${bl},${a})`;
+        if (s < 6) { ctx.fillRect(x - 1, y - 1, 2, 2); continue; }
+        const R = Math.max(1.5, b.size * s * (b.kind === 'pool' ? 0.42 : 0.25));
+        ctx.beginPath(); ctx.ellipse(x, y, R, R * 0.62, b.seed * 3, 0, Math.PI * 2); ctx.fill();
+        for (let k = 0; k < 4; k++) {
+          const a2 = b.seed * 40 + k * 1.9, d = R * (1 + ((b.seed * (k + 3) * 7.3) % 1) * 0.9);
+          ctx.beginPath(); ctx.arc(x + Math.cos(a2) * d, y + Math.sin(a2) * d * 0.6, R * 0.22, 0, 7); ctx.fill();
+        }
+      }
+    }
+
+    // ---------------- 구름과 비·눈 ----------------
+    drawClouds() {
+      const sim = this.sim, ctx = this.ctx, s = this.cam.s;
+      if (!sim.clouds || !sim.clouds.length) return;
+      const snow = sim.season === 3;
+      for (const c of sim.clouds) {
+        const [x, y] = this.toScreen(c.x, c.y);
+        const R = c.r * s;
+        if (x + R * 1.6 < 0 || x - R * 1.6 > this.vw || y + R < -R || y - R * 2 > this.vh) continue;
+        const life = Math.min(1, c.age / 20, (c.life - c.age) / 20);
+        // 땅에 지는 그림자
+        ctx.fillStyle = `rgba(0,0,20,${0.12 * life})`;
+        ctx.beginPath(); ctx.ellipse(x, y, R, R * 0.7, 0, 0, Math.PI * 2); ctx.fill();
+        // 비 또는 눈
+        if (c.rain && life > 0.3) {
+          if (snow) {
+            ctx.fillStyle = 'rgba(255,255,255,0.8)';
+            for (let k = 0; k < 50; k++) {
+              const a = (k * 2.4 + c.seed * 10) % 6.28, d = R * Math.sqrt((k * 0.618 + c.seed) % 1);
+              const fy = ((this.frame * 0.6 + k * 17) % 50) - 25;
+              ctx.fillRect(x + Math.cos(a) * d + Math.sin(this.frame * 0.05 + k) * 3, y + Math.sin(a) * d * 0.7 + fy, 2, 2);
+            }
+          } else {
+            ctx.strokeStyle = 'rgba(170,200,255,0.55)'; ctx.lineWidth = 1;
+            ctx.beginPath();
+            for (let k = 0; k < 70; k++) {
+              const a = (k * 2.4 + c.seed * 10) % 6.28, d = R * Math.sqrt((k * 0.618 + c.seed) % 1);
+              const fy = ((this.frame * 7 + k * 37) % 60) - 30;
+              const dx = x + Math.cos(a) * d, dy = y + Math.sin(a) * d * 0.7 + fy;
+              ctx.moveTo(dx, dy); ctx.lineTo(dx - 2, dy + 8);
+            }
+            ctx.stroke();
+          }
+        }
+        // 구름 (공중에 떠 있어 조금 위에)
+        ctx.fillStyle = c.rain ? `rgba(150,158,170,${0.5 * life})` : `rgba(240,242,246,${0.45 * life})`;
+        for (let k = 0; k < 7; k++) {
+          const a = c.seed * 20 + k * 0.9, d = R * 0.45 * ((k * 0.37 + c.seed) % 1);
+          ctx.beginPath(); ctx.arc(x + Math.cos(a) * d * 1.4, y - R * 0.9 + Math.sin(a) * d * 0.5, R * (0.35 + ((k * 0.29) % 0.3)), 0, 7); ctx.fill();
+        }
+      }
+    }
+
+    // ---------------- 밤 ----------------
+    drawNight() {
+      const sim = this.sim, ctx = this.ctx, s = this.cam.s;
+      const d = sim.darkness();
+      if (d <= 0.01) return;
+      ctx.fillStyle = `rgba(8,12,38,${0.6 * d})`;
+      ctx.fillRect(0, 0, this.vw, this.vh);
+      // 불빛
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      const glow = (wx, wy, r, col, a) => {
+        const [x, y] = this.toScreen(wx, wy);
+        const R = r * s;
+        if (x + R < 0 || y + R < 0 || x - R > this.vw || y - R > this.vh) return;
+        const g = ctx.createRadialGradient(x, y, 0, x, y, R);
+        g.addColorStop(0, `rgba(${col},${a * d})`); g.addColorStop(1, `rgba(${col},0)`);
+        ctx.fillStyle = g; ctx.fillRect(x - R, y - R, R * 2, R * 2);
+      };
+      for (const t of sim.tribes) {
+        if (!t.alive) continue;
+        glow(t.cx, t.cy, 4 + (this.frame % 20 < 10 ? 0.2 : 0), '255,150,60', 0.45);
+        if (s >= 6) for (const hs of t.houses) glow(hs.x, hs.y - 0.3, 1.1, '255,210,120', 0.25);
+        if (t.temple) glow(t.cx, t.cy - 0.5, 2.5, '255,240,180', 0.3);
+      }
+      if (sim.fires.size) {
+        const w = sim.world, v = this.view;
+        let n = 0;
+        for (const i of sim.fires) {
+          const fx = (i % w.w) + 0.5, fy = ((i / w.w) | 0) + 0.5;
+          if (fx < v.x0 - 3 || fx > v.x1 + 3 || fy < v.y0 - 3 || fy > v.y1 + 3) continue;
+          glow(fx, fy, 2.2, '255,120,30', 0.4);
+          if (++n > 150) break;
+        }
+      }
+      ctx.restore();
+      // 별
+      if (d > 0.6) {
+        ctx.fillStyle = `rgba(255,255,255,${0.5 * d})`;
+        for (let k = 0; k < 40; k++) {
+          const x = ((k * 97.3 + 13) % 1) * this.vw, y = ((k * 57.1 + 7) % 1) * this.vh;
+          if ((this.frame + k * 7) % 90 < 70) ctx.fillRect(((k * 9973) % this.vw), ((k * 7919) % this.vh), 1.5, 1.5);
+        }
+      }
+    }
+
+    // 자는 사람: 이불을 덮고 누워 있다
+    drawSleeper(h, x, y, s, color) {
+      const ctx = this.ctx;
+      const u = s * 0.05 * (h.age < 14 ? 0.7 : 1);
+      ctx.fillStyle = 'rgba(0,0,0,0.25)';
+      ctx.beginPath(); ctx.ellipse(x, y, 6 * u, 2 * u, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = color;
+      ctx.beginPath(); ctx.ellipse(x + 1 * u, y - 1.6 * u, 5.5 * u, 2.2 * u, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = h.skin;
+      ctx.beginPath(); ctx.arc(x - 5 * u, y - 2 * u, 2.2 * u, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = h.age >= 55 ? '#cfcfcf' : h.hair;
+      ctx.beginPath(); ctx.arc(x - 5.6 * u, y - 2.2 * u, 2.2 * u, Math.PI * 0.5, Math.PI * 1.5); ctx.fill();
+      if (s >= 14) {
+        const k = (this.frame * 0.02 + h.id) % 1;
+        ctx.fillStyle = `rgba(220,230,255,${1 - k})`;
+        ctx.font = `${10 + k * 4}px sans-serif`; ctx.textAlign = 'center';
+        ctx.fillText('z', x - 4 * u + k * 8, y - 6 * u - k * 14);
+      }
+    }
+
     drawHouse(x, y, s, color) {
       const ctx = this.ctx;
       if (s < 5) { ctx.fillStyle = color; ctx.fillRect(x - 1.5, y - 1.5, 3, 3); return; }
@@ -193,6 +326,8 @@
       ctx.fillRect(x - w / 2, y - h, w, h);
       ctx.fillStyle = color;
       ctx.beginPath(); ctx.moveTo(x - w * 0.62, y - h); ctx.lineTo(x, y - h - s * 0.4); ctx.lineTo(x + w * 0.62, y - h); ctx.fill();
+      const dk = this.sim.darkness();
+      if (dk > 0.3 && s >= 6) { ctx.fillStyle = `rgba(255,210,110,${dk})`; ctx.fillRect(x + w * 0.18, y - h * 0.75, w * 0.18, h * 0.28); }
       if (s >= 14) {
         ctx.fillStyle = '#5b3b22';
         ctx.fillRect(x - w * 0.12, y - h * 0.6, w * 0.24, h * 0.6);
@@ -245,7 +380,8 @@
           ctx.fillRect(x - r, y - r, r * 2, r * 2);
           if (h.state === 'fight') { ctx.fillStyle = '#f33'; ctx.fillRect(x - r, y - r - 2, r * 2, 1.5); }
         } else {
-          this.drawPerson(h, x, y, s, color);
+          if (h.state === 'sleep') this.drawSleeper(h, x, y, s, color);
+          else this.drawPerson(h, x, y, s, color);
         }
         if (h === this.cupidFirst) {
           ctx.strokeStyle = '#ff6fae'; ctx.lineWidth = 2.5;

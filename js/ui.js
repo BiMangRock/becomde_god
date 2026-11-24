@@ -11,7 +11,8 @@
       case 'pray': return '기도하는 중';
       case 'rest': return h.emote === '♥' && h.emoteT > 0 ? '연인과 시간을 보내는 중' : '쉬는 중';
       case 'party': return '축제에서 춤추는 중';
-      case 'held': { const b = h.held && sim.tribeById(h.held.tid); return `${b ? b.name + '에 ' : ''}인질로 잡혀 있음 (몸값 금화 ${h.held ? h.held.ransom : '?'}개)`; }
+      case 'sleep': return '자는 중';
+      case 'held': { const b = h.held && sim.tribeById(h.held.tid); return h.held && h.held.forced ? `${b ? b.name + '에 ' : ''}끌려가 강제로 혼인당한 상태` : `${b ? b.name + '에 ' : ''}인질로 잡혀 있음 (몸값 금화 ${h.held ? h.held.ransom : '?'}개)`; }
       case 'hobby': return h.curHobby === '공부' ? '혼자 조용히 공부하는 중' : `${h.curHobby || '취미'}을(를) 즐기는 중`;
       case 'jailed': return `감옥에 갇혀 있음 (남은 형기 ${Math.max(0, h.jail.until - sim.year).toFixed(1)}년)`;
       case 'busy': return h.busy && h.busy.kind === 'till' ? '밭을 일구는 중' : h.busy && h.busy.kind === 'tend' ? '가축을 돌보는 중' : '도구를 만드는 중';
@@ -268,6 +269,7 @@
           <span class="k">금고</span><span>금화 ${Math.floor(t.treasury)}개</span>
           <span class="k">출생/사망</span><span>${t.births} / ${t.deaths}</span>
           ${t.bandit ? '<span class="k">정체</span><span style="color:#ff8a80">무법자들의 도적단</span>' : ''}
+          <span class="k">법</span><span>${t.law && t.law.adultery ? '간통은 죄 (족장이 재판)' : '간통은 개인 문제'}</span>
           <span class="k">도구</span><span>${t.tools}개 (일 효율 +${Math.round(t.toolBonus() * 100)}%) · 밭 ${t.farmCount}칸</span>
           <span class="k">치안</span><span>경비병 ${t.members.filter((m) => m.job === G.JOB.GUARD).length}명 · ${t.jail ? '감옥 있음' : '감옥 없음'}${t.crimeHeat > 1 ? ' · <span style="color:#ff8a80">범죄 잦음</span>' : ''}</span>
           <span class="k">분위기</span><span>${(() => { const a = t.members.reduce((s, m) => s + m.happy, 0) / Math.max(1, t.members.length); return a >= 65 ? '활기참' : a >= 50 ? '평온함' : a >= 35 ? '침울함' : '험악함'; })()} · 부부 ${Math.floor(t.members.filter((m) => m.partner && m.partner.alive).length / 2)}쌍${t.lastFestival ? ` · 마지막 축제 ${Math.floor(t.lastFestival)}년` : ''}</span>
@@ -351,6 +353,8 @@
           <span class="k">가축</span><span>${sim.animals.filter((a) => a.alive && a.tame).length}마리 · 길들임 ${sim.stats.tamed || 0}번</span>
           <span class="k">불</span><span>${sim.fires.size ? `<span style="color:#ff8a3d">지금 ${sim.fires.size}곳이 타는 중</span>` : '없음'}</span>
           <span class="k">세상 크기</span><span>${sim.world.w} × ${sim.world.h}</span>
+          <span class="k">시간</span><span>${G.TIME_MODES[sim.timeMode].name} (${G.TIME_MODES[sim.timeMode].desc}) · ${G.SEASONS[sim.season]} ${sim.dayOfYear % 10 + 1}일</span>
+          <span class="k">날씨</span><span>${(sim.clouds || []).filter((c) => c.rain).length ? (sim.season === 3 ? '어딘가에 눈이 내리는 중' : '어딘가에 비가 내리는 중') : '맑음'} · 핏자국 ${(sim.blood || []).filter((b) => b.kind !== 'animal').length}곳</span>
         </div>
         <h4>부족 (${tribes.length})</h4>
         ${tribes.length ? tribes.map((t) => `<div class="tribe-row" data-act="tribe" data-id="${t.id}"><span class="dot" style="background:${t.color}"></span><span class="n">${esc(t.name)}</span>${t.wars.size ? '<span class="war">전쟁</span>' : ''}<span class="muted">${t.members.length}명</span></div>`).join('') : '<p class="muted">아직 부족이 없습니다. 사람들이 모여 지내다 보면 부족이 생깁니다.</p>'}

@@ -15,13 +15,22 @@
       <div class="stat" title="인간들의 믿음. 권능을 쓰는 데 필요합니다"><span class="k">신앙</span><span class="v" id="s-faith">0</span><span class="sub" id="s-rate"></span></div>
       <div class="stat"><span class="k">인구</span><span class="v" id="s-pop">0</span></div>
       <div class="stat"><span class="k">부족</span><span class="v" id="s-tribes">0</span></div>
-      <div class="stat"><span class="k">연도</span><span class="v" id="s-year">0년</span><span class="badge" id="s-drought" hidden>가뭄</span></div>
+      <div class="stat" title="1년 = 4계절 × 10일"><span class="v" id="s-year">0년</span><span class="k" id="s-date"></span><span class="badge" id="s-drought" hidden>가뭄</span></div>
     </div>
+    <select id="time-mode" title="시간 흐름">
+      <option value="vfast">아주 빠름</option><option value="fast">빠름</option><option value="normal" selected>보통</option><option value="slow">느림</option><option value="vslow">아주 느림</option>
+    </select>
     <div class="speed" id="speed">
       <button data-speed="0" title="일시정지 (스페이스)">❚❚</button>
       <button data-speed="1" class="on" title="1배속">1x</button>
       <button data-speed="3" title="3배속">3x</button>
       <button data-speed="10" title="10배속">10x</button>
+      <button data-speed="30" title="30배속">30x</button>
+      <button data-speed="100" title="100배속 (느린 시간 흐름에서만)" hidden>100x</button>
+    </div>
+    <div class="speed">
+      <button id="skip-morning" title="다음 아침까지 건너뛰기">☀</button>
+      <button id="skip-season" title="다음 계절까지 건너뛰기">⏭</button>
     </div>
     <button id="btn-new" class="ghost" title="새 세상 만들기">새 세상</button>
   </header>
@@ -61,6 +70,14 @@
         <button data-opt="pop" data-v="16">16명</button>
         <button data-opt="pop" data-v="30">30명</button>
       </div>
+      <h4>시간 흐름 <span class="muted">(게임 중에도 바꿀 수 있어요)</span></h4>
+      <div class="opts opts5">
+        <button data-opt="time" data-v="vfast">아주 빠름<small>1년 10초</small></button>
+        <button data-opt="time" data-v="fast">빠름<small>하루 2초</small></button>
+        <button data-opt="time" data-v="normal" class="on">보통<small>하루 5초</small></button>
+        <button data-opt="time" data-v="slow">느림<small>하루 1분</small></button>
+        <button data-opt="time" data-v="vslow">아주 느림<small>하루 10분</small></button>
+      </div>
       <h4>동물</h4>
       <div class="opts">
         <button data-opt="animals" data-v="0.4">적음</button>
@@ -90,6 +107,7 @@
   <script src="js/wildlife.js"></script>
   <script src="js/social.js"></script>
   <script src="js/crime2.js"></script>
+  <script src="js/weather.js"></script>
   <script src="js/sim.js"></script>
   <script src="js/fx.js"></script>
   <script src="js/render.js"></script>

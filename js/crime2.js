@@ -10,6 +10,7 @@
   Object.assign(C.SEV, {
     사기: 1, 횡령: 2, 뇌물: 2, '가축 도둑': 1, 밀렵: 1, '도박 사기': 1, 방화: 3, 독살: 5, 가정폭력: 2,
     인질극: 3, 무고: 2, 갈취: 2, 반역: 4, 탈영: 2, 공연음란: 2, 스토킹: 2, 성추행: 4,
+    성희롱: 1, 훔쳐보기: 1, '권력형 성범죄': 4, 약탈혼: 4, '성매매 알선': 3, '성적 협박': 3, 간통: 2,
   });
   Object.assign(G.MOODS, {
     disgusted: { t: '불쾌한 일을 겪었다', v: -12, d: 0.4 },
@@ -22,6 +23,14 @@
     cleared: { t: '누명을 벗었다', v: 15, d: 1 },
     redeemed: { t: '새 삶을 찾았다', v: 20, d: 2 },
     stigma: { t: '전과자라는 눈총', v: -8, d: 0.5 },
+    sawBlood: { t: '핏자국을 보았다', v: -8, d: 0.15 },
+    harassed: { t: '불쾌한 말을 들었다', v: -10, d: 0.5 },
+    peeped: { t: '누가 몰래 훔쳐보았다', v: -12, d: 0.6 },
+    shamed: { t: '망신을 당했다', v: -10, d: 0.6 },
+    coerced: { t: '지위를 이용한 강요를 당했다', v: -28, d: 2 },
+    exploited: { t: '착취당하고 있다', v: -20, d: 0.5 },
+    rescued: { t: '보호를 받았다', v: 15, d: 1 },
+    forcedWed: { t: '강제로 혼인당했다', v: -30, d: 0.3 },
   });
 
   const grown = (h) => h && h.alive && h.age >= 18 && !h.jail && !h.held;
@@ -104,16 +113,11 @@
     X.fakeTick(sim, h);
     X.stalkTick(sim, h, u);
     X.extortTick(sim, h, u);
+    X.exploitTick(sim, h);
     if (h.has('정직한') && chance(0.9)) return;
-    const r = Math.random();
-    if (r < 0.2) X.embezzle(sim, h, u);
-    else if (r < 0.35) X.livestockTheft(sim, h, u);
-    else if (r < 0.5) X.grudgeCrimes(sim, h, u);
-    else if (r < 0.6) X.falseAccuse(sim, h, u);
-    else if (r < 0.7) X.rebellion(sim, h, u);
-    else if (r < 0.8) X.desert(sim, h);
-    else if (r < 0.9) X.indecency(sim, h, u);
-    else X.harass(sim, h, u);
+    const pickOne = pick([X.embezzle, X.livestockTheft, X.grudgeCrimes, X.grudgeCrimes, X.falseAccuse, X.rebellion, X.desert,
+      X.indecency, X.harass, X.verbal, X.verbal, X.peep, X.powerAbuse, X.pimp]);
+    pickOne(sim, h, u);
     X.bribeExposure(sim, h);
   };
 
@@ -230,7 +234,7 @@
     C.record(sim, h, '독살', o.name, false);
     S.rel(h, o).grudge = 0;
     const tid = o.tribe ? o.tribe.id : null;
-    sim.scheduled.push({ t: randi(120, 360), fn: () => {
+    sim.scheduled.push({ t: Math.max(30, Math.round(randi(3, 10) / sim.dt)), fn: () => {
       if (!o.alive) return;
       const seen = chance(0.15) || C.detect(sim, h, '독살', o.name, ws.filter((w) => w.alive));
       sim.kill(o, '원인 모를 병');
@@ -245,6 +249,7 @@
     const hot = h.p.impulse > 60 || h.drunk > 0 || h.has('냉정한') || (h.stress || 0) > 70;
     if (!hot || !chance(0.12 * (h.teto > 20 ? 1.3 : 0.7) * C.urge(h))) return;
     o.health -= rand(8, 18);
+    G.Blood.splash(sim, o.x, o.y, 2, 0.5, 'drops');
     o.say('!', 90); h.say('#', 90);
     S.addMood(sim, o, 'abused');
     M.adj(sim, o, h, { fear: 35, trust: -35, grudge: 25 });
@@ -272,6 +277,8 @@
     if (!v) return false;
     const ransom = randi(30, 80);
     v.held = { tid: bandits.id, from: foe.id, ransom, since: sim.year };
+    // 약탈혼: 짝 없는 도적이 끌고 가 강제로 혼인시킨다
+    if (!S.mate(raider) && raider.age >= 18 && chance(0.4)) return X.forcedMarriage(sim, raider, v, bandits, foe, ransom);
     v.task = null; v.path = null; v.state = 'held';
     v.x = bandits.cx + rand(-1, 1); v.y = bandits.cy + rand(-1, 1);
     S.addMood(sim, v, 'captive');
@@ -285,7 +292,7 @@
   X.heldTick = (sim, v) => {
     const H = v.held;
     const bandits = sim.tribeById(H.tid), home = sim.tribeById(H.from);
-    S.addMood(sim, v, 'captive');
+    S.addMood(sim, v, H.forced ? 'forcedWed' : 'captive');
     if (v.hunger > 60 && bandits && bandits.stock.food >= 1) { bandits.stock.food--; v.hunger -= 40; }
     let how = null;
     if (!bandits) how = '도적단이 무너져';
@@ -298,8 +305,9 @@
     }
     if (!how && chance(v.has('용감한') || v.has('교활한') ? 0.02 : 0.008)) how = '감시가 소홀한 틈을 타';
     if (!how) return;
+    const forced = H.forced;
     v.held = null; v.state = 'idle';
-    v.log(sim, `${how} 풀려났다`);
+    v.log(sim, forced ? `${how} 강제 혼인에서 벗어났다` : `${how} 풀려났다`);
     S.addMood(sim, v, 'freed');
     M.trauma(sim, v, 0.3, '인질로 잡혀 있던 기억에');
     sim.event(`인질로 잡혀 있던 ${josa(v.name, '이/가')} ${how} 풀려났습니다`, '#7fc8f8', v.x, v.y);
@@ -357,9 +365,12 @@
       if (target && !S.rel(h, target).blackmailing) {
         S.rel(h, target).blackmailing = true; S.rel(target, h).blackmailer = true;
         const secret = target.affair ? '몰래 만나는 사람' : '숨긴 죄';
-        h.log(sim, `${target.name}의 ${josa(secret, '을/를')} 알아내고 협박하기 시작했다`);
-        target.log(sim, `${josa(h.name, '이/가')} 비밀을 알고 협박해 왔다`);
-        C.record(sim, h, '갈취', target.name, false);
+        // 바람을 빌미로 한 협박은 친화성이 낮은 사람이 부당한 요구까지 한다
+        const sexual = !!target.affair && h.p.agree < 35 && target.age >= 18 && h.age >= 18;
+        S.rel(h, target).sexual = sexual;
+        h.log(sim, sexual ? `${target.name}의 비밀 연애를 빌미로 부당한 요구를 하기 시작했다` : `${target.name}의 ${josa(secret, '을/를')} 알아내고 협박하기 시작했다`);
+        target.log(sim, sexual ? `${josa(h.name, '이/가')} 비밀 연애를 빌미로 부당한 요구를 해 왔다` : `${josa(h.name, '이/가')} 비밀을 알고 협박해 왔다`);
+        C.record(sim, h, sexual ? '성적 협박' : '갈취', target.name, false);
       }
     }
     // 돈 뜯기
@@ -370,10 +381,10 @@
       if (o.gold >= 5 && (o.p.impulse < 70 || chance(0.6))) {
         const g = Math.min(Math.floor(o.gold), randi(5, 15));
         o.gold -= g; h.gold += g;
-        S.addMood(sim, o, 'blackmailed');
-        o.stress = clamp((o.stress || 0) + 10, 0, 100);
+        S.addMood(sim, o, r.sexual ? 'coerced' : 'blackmailed');
+        o.stress = clamp((o.stress || 0) + (r.sexual ? 15 : 10), 0, 100);
         M.adj(sim, o, h, { grudge: 10, fear: 5 });
-        if (chance(0.06)) { o.log(sim, `협박을 견디지 못하고 ${josa(h.name, '을/를')} 신고했다`); C.report(sim, h, '갈취', o.name); r.blackmailing = false; }
+        if (chance(0.06)) { o.log(sim, `협박을 견디지 못하고 ${josa(h.name, '을/를')} 신고했다`); C.report(sim, h, r.sexual ? '성적 협박' : '갈취', o.name); r.blackmailing = false; }
       } else {
         // 거절하면 비밀을 터뜨린다
         r.blackmailing = false; S.rel(o, h).blackmailer = false;
@@ -495,5 +506,141 @@
     if (seen) {
       for (const p of sim.humans) { const pr = p.alive && p.rel.get(v.id); if (pr && pr.v >= 50 && p !== h) M.adj(sim, p, h, { grudge: 35, trust: -60 }); }
     } else v.log(sim, '두려워서 아무에게도 말하지 못했다');
+  };
+
+  // ================= 성 관련 범죄 (어른끼리만, 기록 문장으로만) =================
+
+  // 성희롱 (말): 반복되면 신고되고, 피해자는 그 사람을 피한다
+  X.verbal = (sim, h, u) => {
+    if (h.p.agree >= 40 || !chance(0.015 * u)) return;
+    let v = null;
+    sim.near(h.x, h.y, 3, (o) => { if (!v && o !== h && grown(o) && o !== S.mate(h) && !S.isFamily(h, o.id)) v = o; });
+    if (!v) return;
+    const r = S.rel(v, h);
+    r.harassN = (r.harassN || 0) + 1;
+    r.avoid = true;
+    S.addMood(sim, v, 'harassed');
+    S.bump(sim, v, h, -12);
+    M.adj(sim, v, h, { trust: -20 });
+    v.say('#', 60);
+    if (r.harassN === 1) { v.log(sim, `${h.name}에게 불쾌한 말을 들었다`); C.record(sim, h, '성희롱', v.name, false); }
+    if (r.harassN >= 3 && chance(0.5)) {
+      v.log(sim, `계속되는 ${h.name}의 성희롱을 신고했다`);
+      for (const c of h.crimes) if (c.type === '성희롱' && c.victim === v.name) c.known = true;
+      C.report(sim, h, '성희롱', v.name);
+      r.harassN = 0;
+    }
+  };
+
+  // 훔쳐보기: 물가에 있는 사람을 몰래 엿본다
+  X.peep = (sim, h, u) => {
+    if (!chance(0.018 * u * (h.p.agree < 40 ? 1.5 : 1))) return;
+    let v = null;
+    sim.near(h.x, h.y, 6, (o) => {
+      if (v || o === h || !grown(o) || o === S.mate(h)) return;
+      const atWater = (o.task && (o.task.res === 'fish' || o.task.kind === 'fetch')) || (o.state === 'hobby' && o.curHobby === '낚시') || sim.world.typeAt(o.x, o.y) === G.T.SAND;
+      if (atWater) v = o;
+    });
+    if (!v) return;
+    h.log(sim, `강가에 있는 ${josa(v.name, '을/를')} 몰래 훔쳐보았다`);
+    const ws = C.witnesses(sim, h.x, h.y, [h]);
+    const { seen } = X.commit(sim, h, '훔쳐보기', v.name, ws, 0.35);
+    if (seen) {
+      S.addMood(sim, v, 'peeped'); S.addMood(sim, h, 'shamed');
+      M.adj(sim, v, h, { trust: -50 }); S.bump(sim, v, h, -25);
+      v.log(sim, `${josa(h.name, '이/가')} 몰래 훔쳐보는 것을 알아챘다`);
+      sim.near(h.x, h.y, 10, (o) => { if (o !== h && o.adult) M.adj(sim, o, h, { trust: -15 }); });
+    }
+  };
+
+  // 권력형 성범죄: 지위를 이용한 강요. 피해자는 보복이 두려워 잘 신고하지 못한다
+  X.powerAbuse = (sim, h, u) => {
+    const powerful = h.job === J.CHIEF || h.job === J.GUARD || (h.job === J.MERCHANT && h.gold >= 60);
+    if (!powerful || !h.tribe || h.p.agree >= 40 || !chance(0.03 * u)) return;
+    let v = null;
+    sim.near(h.x, h.y, 3, (o) => {
+      if (v || o === h || !grown(o) || o.tribe !== h.tribe || o.job === J.CHIEF || o === S.mate(h)) return;
+      if (G.Persona.appeal(h, o) > 1.1) v = o;
+    });
+    if (!v) return;
+    const role = h.job === J.CHIEF ? '족장' : h.job === J.GUARD ? '경비병' : '부유한 상인';
+    h.log(sim, `${role}의 지위를 이용해 ${v.name}에게 성적 강요를 했다`);
+    v.log(sim, `${role} ${josa(h.name, '이/가')} 지위를 이용해 성적으로 강요했다`);
+    S.addMood(sim, v, 'coerced');
+    M.adj(sim, v, h, { fear: 50, grudge: 40, trust: -80 });
+    S.bump(sim, v, h, -50, -40);
+    M.trauma(sim, v, 0.3, '지위를 이용한 강요를 당하고');
+    C.record(sim, h, '권력형 성범죄', v.name, false);
+    const p = 0.12 + friendsOf(sim, v) * 0.05 + (h.job !== J.GUARD ? guardsNear(sim, v.x, v.y) * 0.15 : 0);
+    if (chance(p)) {
+      v.log(sim, '두려움을 이겨 내고 피해를 알렸다');
+      for (const c of h.crimes) if (c.type === '권력형 성범죄' && !c.known) c.known = true;
+      C.report(sim, h, '권력형 성범죄', v.name);
+      // 족장이면 부족 사람들의 마음이 떠난다 (반란의 불씨)
+      if (h.job === J.CHIEF) for (const m of h.tribe.members) if (m !== h && m.adult) { S.bump(sim, m, h, -20); M.adj(sim, m, h, { respect: -30 }); }
+    } else v.log(sim, '보복이 두려워 아무에게도 말하지 못했다');
+  };
+
+  // 약탈혼: 도적단이 다른 부족 어른을 끌고 가 강제로 혼인시킨다 (takeHostage에서 호출)
+  X.forcedMarriage = (sim, raider, v, bandits, foe, ransom) => {
+    v.held.forced = raider.id;
+    v.log(sim, `${bandits.name}의 ${raider.name}에게 끌려가 강제로 혼인하게 되었다`);
+    raider.log(sim, `${foe.name}의 ${josa(v.name, '을/를')} 끌고 와 강제로 혼인했다`);
+    S.addMood(sim, v, 'forcedWed');
+    M.adj(sim, v, raider, { grudge: 60, fear: 40, trust: -90 });
+    S.rel(v, raider).forcedBy = true;
+    for (const p of sim.humans) {
+      const pr = p.alive && p.rel.get(v.id);
+      if (pr && (pr.v >= 50 || S.isFamily(p, v.id))) M.adj(sim, p, raider, { grudge: 50 });
+    }
+    C.record(sim, raider, '약탈혼', v.name, true);
+    raider.notoriety = clamp(raider.notoriety + 30, 0, 100);
+    sim.event(`${josa(bandits.name, '이/가')} ${foe.name}의 ${josa(v.name, '을/를')} 끌고 가 강제로 혼인시켰습니다 (몸값 금화 ${ransom}개)`, '#ff8a50', v.x, v.y);
+    return true;
+  };
+
+  // 성매매 알선: 가난한 사람을 착취한다. 처벌은 알선한 사람만 받고, 피해자는 보호받는다
+  X.pimp = (sim, h, u) => {
+    if (h.exploiting || !(h.has('교활한') || h.has('탐욕스러운')) || h.p.agree >= 40 || !chance(0.03 * u)) return;
+    let v = null;
+    sim.near(h.x, h.y, 5, (o) => {
+      if (v || o === h || !grown(o) || S.isFamily(h, o.id) || o === S.mate(h)) return;
+      if (o.gold < 3 && (o.hunger > 50 || o.convictions || o.outlaw || o.addiction > 50)) v = o;
+    });
+    if (!v) return;
+    h.exploiting = v.id;
+    h.log(sim, `가난한 ${josa(v.name, '을/를')} 착취해 성매매를 알선하기 시작했다`);
+    v.log(sim, `가난에 몰려 ${h.name}에게 착취당하기 시작했다`);
+    C.record(sim, h, '성매매 알선', v.name, false);
+  };
+  X.exploitTick = (sim, h) => {
+    if (!h.exploiting) return;
+    const v = sim.byId.get(h.exploiting);
+    if (!grown(v) || v.gold > 25) { h.exploiting = null; return; }
+    if (chance(0.3)) {
+      h.gold += randi(4, 10); v.gold += 1;
+      S.addMood(sim, v, 'exploited');
+      v.stress = clamp((v.stress || 0) + 6, 0, 100);
+    }
+    if (chance(0.02 + guardsNear(sim, h.x, h.y) * 0.03 + friendsOf(sim, v) * 0.01)) {
+      for (const c of h.crimes) if (c.type === '성매매 알선' && !c.known) c.known = true;
+      C.report(sim, h, '성매매 알선', v.name);
+      h.exploiting = null;
+      S.addMood(sim, v, 'rescued');
+      v.gold += 10; v.hunger = Math.max(0, v.hunger - 40);
+      v.log(sim, '착취에서 벗어나 부족의 보호를 받았다');
+    }
+  };
+
+  // 간통: 간통을 죄로 정한 부족에서만 재판한다 (S.couples에서 바람이 들켰을 때 호출)
+  X.adultery = (sim, h, other) => {
+    const t = h.tribe;
+    if (!t || !t.law || !t.law.adultery) return;
+    for (const x of [h, other]) {
+      if (!x || !x.alive || x.age < 18) continue;
+      C.record(sim, x, '간통', x === h ? other.name : h.name, true);
+      C.report(sim, x, '간통', x === h ? other.name : h.name);
+    }
+    t.log(sim, `${t.name}의 법에 따라 ${josa(h.name, '과/와')} ${josa(other.name, '이/가')} 간통으로 재판을 받게 되었습니다`);
   };
 })();

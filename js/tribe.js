@@ -16,6 +16,8 @@
       sim.usedTribeNames.add(this.name);
       this.color = this.bandit ? G.pick(['#6e6e6e', '#5b4a4a', '#4f5560']) : G.TRIBE_COLORS[(this.id - 1) % G.TRIBE_COLORS.length];
       this.tools = 0;        // 대장장이가 만든 도구
+      // 부족의 법: 바람(간통)을 죄로 볼 것인가
+      this.law = { adultery: !this.bandit && chance(0.4) };
       this.jail = null;      // 감옥 위치
       this.farmCount = 0;
       this.cx = cx; this.cy = cy;
@@ -229,11 +231,28 @@
       return best;
     }
 
-    yearly(sim) {
+    // 계절이 바뀔 때: 가을엔 추수 축제, 봄엔 봄맞이
+    seasonal(sim, season) {
+      if (!this.members.length || this.bandit) return;
+      if (season === 2 || season === 0) {
+        const avgHappy = this.members.reduce((s, m) => s + m.happy, 0) / this.members.length;
+        const p = season === 2 ? 0.55 : 0.25;
+        if (this.members.length >= 6 && avgHappy > 50 && this.stock.food > this.members.length * 3 && sim.year - (this.lastFestival || -99) >= 2 && chance(p)) {
+          G.Social.festival(sim, this, season === 2 ? '추수 축제' : '봄맞이 축제');
+        }
+      }
+    }
+
+    // part: 'econ' = 활동 시간 기준(살림), 'life' = 달력 기준(정치·외교)
+    yearly(sim, part = 'all') {
+      const econ = part !== 'life', life = part !== 'econ';
       this.members = this.members.filter((m) => m.alive && m.tribe === this);
       if (!this.members.length) { sim.destroyTribe(this, '마지막 한 사람까지 사라졌습니다'); return; }
       if (!this.chief || !this.chief.alive || this.chief.tribe !== this) this.electChief(sim);
+      // 식량은 해마다 조금씩 상한다 (달력 기준)
+      if (life) this.stock.food = Math.floor(this.stock.food * (this.has('토기') ? 0.92 : 0.85));
 
+      if (econ) {
       // 집 짓기
       let built = 0;
       while (this.houses.length * 4 < this.members.length + 2 && this.stock.wood >= 6 && built < 3) {
@@ -249,8 +268,6 @@
         this.log(sim, `${josa(this.name, '이/가')} 신을 모시는 신전을 세웠습니다`);
       }
 
-      // 식량은 해마다 조금씩 상한다
-      this.stock.food = Math.floor(this.stock.food * (this.has('토기') ? 0.92 : 0.85));
       if (this.has('관개')) {
         const w = sim.world;
         for (let y = Math.floor(this.cy - 8); y <= this.cy + 8; y++) for (let x = Math.floor(this.cx - 8); x <= this.cx + 8; x++) {
@@ -258,6 +275,8 @@
         }
       }
 
+      }
+      if (life) {
       // 경비병이 없어도 마을 사람들이 수배자를 붙잡아 재판한다
       if (!this.bandit) {
         for (const m of [...this.members]) {
@@ -268,8 +287,12 @@
         }
       }
 
+      }
+      if (econ) {
       // 도구는 닳는다
       this.tools = Math.floor(this.tools * 0.9);
+      }
+      if (life) {
       // 감옥: 사람이 많거나 범죄가 잦으면 짓는다
       if (!this.jail && !this.bandit && this.stock.wood >= 20 && (this.members.length >= 16 || (this.members.length >= 8 && (this.crimeHeat || 0) >= 2))) {
         for (let k = 0; k < 20; k++) {
@@ -283,12 +306,16 @@
         }
       }
       this.crimeHeat = Math.max(0, (this.crimeHeat || 0) * 0.6);
+      }
+      if (econ) {
       this.farmCount = sim.world.countFarms(this.cx, this.cy, 8);
       this.hasWater = !!sim.world.findShore(this.cx, this.cy, 18);
       this.hasPrey = sim.animals.some((a) => a.alive && !a.tame && G.dist(a.x, a.y, this.cx, this.cy) < 26);
       this.hasBeasts = !!G.Wild.near(sim, this.cx, this.cy, 32, G.Wild.isBeast);
       this.hasTameable = !!G.Wild.near(sim, this.cx, this.cy, 22, (a) => !a.tame && G.Wild.TAMEABLE.includes(a.kind) && a.kind !== 'wolf');
       this.herd = G.Wild.livestock(sim, this).length;
+      }
+      if (life) {
       this.beastHeat = (this.beastHeat || 0) * 0.5;
       // 도적단은 가장 가까운 마을을 노린다
       if (this.bandit && !this.wars.size && this.members.length >= 3) {
@@ -296,6 +323,8 @@
         if (target && G.dist(target.cx, target.cy, this.cx, this.cy) < 60 && chance(0.5)) sim.declareWar(this, target);
       }
 
+      }
+      if (econ) {
       // 광석으로 금화 만들기 (대장장이가 있으면 도구용으로 남긴다)
       const hasSmith = this.members.some((m) => m.job === J.SMITH);
       if (this.stock.ore >= (hasSmith ? 12 : 4)) {
@@ -316,17 +345,14 @@
       // 기근
       if (this.stock.food < 1 && this.members.length >= 6 && chance(0.4)) this.log(sim, `${this.name}에 기근이 들었습니다`);
 
-      // 축제: 넉넉하고 기분 좋은 해에는 모닥불 축제
-      const avgHappy = this.members.reduce((s, m) => s + m.happy, 0) / this.members.length;
-      if (this.members.length >= 6 && avgHappy > 55 && this.stock.food > this.members.length * 3 && sim.year - (this.lastFestival || -99) >= 3 && chance(0.45)) {
-        G.Social.festival(sim, this);
-      }
 
       // 직업 재조정 (일부만)
       for (const m of this.members) {
         if (m.adult && m !== this.chief && chance(0.15)) this.assignJob(sim, m);
       }
 
+      }
+      if (life) {
       // 외교
       for (const o of sim.tribes) {
         if (o === this || !o.alive || o.id < this.id) continue;
@@ -356,6 +382,8 @@
 
       this.hasOre = !!sim.world.findResource(this.cx, this.cy, 'ore', 20);
 
+      }
+      if (econ) {
       // 기근이 심하면 더 비옥한 땅으로 이주
       const around = sim.world.foodAround(this.cx, this.cy, 7);
       if (this.stock.food < this.members.length && around < this.members.length * 4 && chance(0.6)) {
@@ -373,8 +401,9 @@
         }
       }
 
+      }
       // 분열
-      if (!this.bandit && this.members.length > 32 && chance(0.35)) sim.splitTribe(this);
+      if (life && !this.bandit && this.members.length > 32 && chance(0.35)) sim.splitTribe(this);
     }
   }
 

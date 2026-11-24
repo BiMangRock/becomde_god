@@ -35,6 +35,7 @@
     u *= (0.6 + h.p.impulse / 125) * (1.4 - h.p.agree / 125);
     if (h.addiction > 50 && h.gold < 5) u *= 1.6;
     if (h.drunk > 0) u *= 1.5;
+    if (G.curSim && G.curSim.isNight()) u *= 1.4; // 밤에는 보는 눈이 적다
     return u;
   };
 
@@ -52,7 +53,7 @@
   // 범행을 본 사람들
   C.witnesses = (sim, x, y, exclude) => {
     const out = [];
-    sim.near(x, y, 6, (w) => { if (!exclude.includes(w) && w.age >= 6 && !w.jail) out.push(w); });
+    sim.near(x, y, 6, (w) => { if (!exclude.includes(w) && w.age >= 6 && !w.jail && w.state !== 'sleep') out.push(w); });
     return out;
   };
 
@@ -93,6 +94,7 @@
   C.tick = (sim, h) => {
     if (!h.adult || !h.alive) return;
     if (h.jail) return C.prisonTick(sim, h);
+    if (h.state === 'sleep') return;
     G.Crime2.tick(sim, h);
     if (!h.alive || h.held || h.jail) return;
     // 수배자는 달아나기도 한다
@@ -162,6 +164,7 @@
   C.assault = (sim, h, o, ws) => {
     const dmg = rand(20, 35) * (h.has('용감한') ? 1.2 : 1);
     o.health -= dmg;
+    G.Blood.splash(sim, o.x, o.y, 2, 0.6, 'drops');
     h.say('#', 90); o.say('!', 90);
     G.Social.addMood(sim, h, 'brawl'); G.Social.addMood(sim, o, 'brawl');
     G.Mind.adj(sim, o, h, { grudge: 30, fear: 25, trust: -40 });
@@ -181,7 +184,16 @@
     sim.stats.murders = (sim.stats.murders || 0) + 1;
     const vname = o.name, vx = o.x, vy = o.y, vtribe = o.tribe;
     h.log(sim, accidental ? `${josa(o.name, '을/를')} 때리다 그만 목숨을 빼앗고 말았다` : `오랜 원한 끝에 ${josa(o.name, '을/를')} 살해했다`);
+    const key = `${vname}:${Math.floor(sim.year * 1000)}`;
     sim.kill(o, '살인', h);
+    G.Blood.splash(sim, vx, vy, 4, 0.9, 'pool', key);
+    G.Blood.add(sim, vx, vy, 1.4, 'pool', key);
+    // 교활한 범인은 흔적을 지우려 한다
+    if (h.has('교활한') && chance(0.6)) {
+      G.Blood.wash(sim, vx, vy, 1.6);
+      h.log(sim, '핏자국을 몰래 닦아 흔적을 지웠다');
+      if (ws.length && chance(0.5)) ws[0].log(sim, `${josa(h.name, '이/가')} 무언가를 닦아 내는 수상한 모습을 보았다`);
+    }
     const r = G.Social.rel(h, o);
     r.grudge = 0;
     h.stress = clamp((h.stress || 0) + 30, 0, 100);
@@ -202,7 +214,7 @@
       }
       C.report(sim, h, '살인', vname);
     } else {
-      sim.unsolved.push({ victim: vname, killer: h.id, tid: vtribe ? vtribe.id : null, y: sim.year, x: vx, yy: vy });
+      sim.unsolved.push({ victim: vname, killer: h.id, tid: vtribe ? vtribe.id : null, y: sim.year, x: vx, yy: vy, key });
       sim.event(`${josa(vname, '이/가')} 숨진 채 발견되었습니다. 범인은 알 수 없습니다`, '#a05050', vx, vy);
     }
   };
@@ -216,6 +228,8 @@
       const t = cs.tid ? sim.tribeById(cs.tid) : null;
       const guards = t ? t.members.filter((m) => m.job === J.GUARD).length : 0;
       let p = 0.01 + guards * 0.025;
+      // 현장에 피가 남아 있으면 증거가 된다 (비가 오면 씻겨 사라진다)
+      if (cs.key && G.Blood.near(sim, cs.x, cs.yy, 2.5, (b) => b.case === cs.key)) p *= 2.5;
       if (k.has('교활한')) p *= 0.5;
       if (chance(p)) {
         sim.unsolved.splice(i, 1);

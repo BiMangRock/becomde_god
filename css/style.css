@@ -92,3 +92,8 @@ table.mini td:last-child { text-align: right; color: #9aa6b8; }
 .opts button small { font-size: 11px; opacity: 0.7; }
 #setup-seed { width: 100%; padding: 8px 10px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.15); background: rgba(255,255,255,0.05); color: inherit; font: inherit; }
 @media (max-width: 820px) { #minimap { left: auto; right: 10px; top: 120px; bottom: auto; width: 110px; } }
+
+.opts.opts5 { grid-template-columns: repeat(5, 1fr); }
+#time-mode { font: inherit; color: inherit; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.14); border-radius: 8px; padding: 5px 6px; }
+#time-mode option { background: #14203a; }
+#s-date { color: #c9d3e0; font-size: 12px; }

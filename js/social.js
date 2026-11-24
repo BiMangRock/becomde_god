@@ -166,6 +166,7 @@
     if (h.affair === id) return '비밀 연인';
     const o = sim.byId.get(id);
     if (r.sibling) return '형제자매';
+    if (r.forcedBy) return '강제 혼인';
     if (o && o.stalking === h.id) return '스토커';
     if (h.stalking === id) return '집착 대상';
     if (r.blackmailer) return '협박범';
@@ -214,23 +215,35 @@
   const attraction = (a, b) => (a.gender !== b.gender ? 1 : 0.04 + a.p.open / 100 * 0.2) * G.Persona.appeal(a, b);
 
   // ---------------- 60틱마다: 사람들 사이의 일 ----------------
-  S.tick = (sim) => {
+  // 달력 기준 (하루에 몇 번): 마음, 범죄, 질병, 결혼·임신·이별
+  S.lifeTick = (sim) => {
+    for (const h of sim.humans) {
+      if (!h.alive) continue;
+      G.Mind.tick(sim, h);
+      if (h.alive) G.Crime.tick(sim, h);
+      if (h.alive) G.Persona.tick(sim, h);
+    }
+    S.couples(sim);
+  };
+
+  // 활동 기준: 기분, 만남과 수다, 연애 감정
+  S.activityTick = (sim) => {
+    // 관계가 변하는 빠르기가 달력과 맞도록, 느린 시간 흐름에서는 만남을 줄인다
+    const k = Math.min(1, sim.dt / sim.pace * 2);
     for (const h of sim.humans) {
       if (!h.alive) continue;
       S.updateMood(sim, h);
-      S.loveDrift(sim, h);
-      G.Mind.tick(sim, h);
-      G.Crime.tick(sim, h);
-      if (!h.alive || h.age < 3 || h.state === 'fight' || h.state === 'pray') continue;
+      if (chance(k)) S.loveDrift(sim, h);
+      G.Blood.witness(sim, h);
+      if (h.age < 3 || h.state === 'fight' || h.state === 'pray' || h.state === 'sleep' || h.held) continue;
       // 불안증·우울증이 있으면 사람을 덜 만난다
       if (h.mind && (h.mind.c === '불안증' || h.mind.c === '우울증') && chance(0.4)) continue;
+      if (!chance(k)) continue;
       S.ripen(sim, h);
-      G.Persona.tick(sim, h);
-      if (!h.alive) continue;
       // 외향적일수록 사람을 자주 만난다
       if (!chance(0.25 + h.p.extra / 100 * 0.6)) continue;
       let pool = [];
-      sim.near(h.x, h.y, 4, (o) => { if (o !== h && o.age >= 3 && o.state !== 'fight' && !!o.jail === !!h.jail) pool.push(o); });
+      sim.near(h.x, h.y, 4, (o) => { if (o !== h && o.age >= 3 && o.state !== 'fight' && o.state !== 'sleep' && !!o.jail === !!h.jail && !(S.peek(o, h) || {}).avoid) pool.push(o); });
       if (!pool.length) {
         if (h.adult && chance(0.05) && ![...h.rel.values()].some((r) => r.v >= 40)) S.addMood(sim, h, 'lonely');
         continue;
@@ -240,8 +253,8 @@
       const o = chance(0.4) ? pool[0] : pick(pool);
       S.interact(sim, h, o);
     }
-    S.couples(sim);
   };
+  S.tick = (sim) => { S.activityTick(sim); S.lifeTick(sim); };
 
   // 두 사람이 마주쳤을 때
   S.interact = (sim, h, o) => {
@@ -468,6 +481,7 @@
             G.Mind.adj(sim, spouse, h, { trust: -60, grudge: 45 });
             G.Mind.adj(sim, spouse, other, { grudge: 65, jealousy: 70 });
             S.rel(spouse, other).rival = true;
+            G.Crime2.adultery(sim, h, other);
             spouse.log(sim, `${josa(h.name, '이/가')} ${josa(other.name, '과/와')} 몰래 만나는 것을 알게 되었다`);
             h.log(sim, `${josa(other.name, "과/와")}의 관계를 ${spouse.name}에게 들켰다`);
             spouse.say('#', 150);
@@ -542,6 +556,7 @@
     const fed = t ? t.stock.food > t.members.length * 0.5 : mom.hunger < 50;
     if (!fed) return;
     let p = 0.18 * mult;
+    if (sim.season === 0) p *= 1.2;
     if (mom.happy > 65) p *= 1.3;
     if (S.hasMood(mom, 'fertile')) p *= 3;
     if (chance(p)) S.conceive(sim, mom, dad);
@@ -576,7 +591,7 @@
   };
 
   // ---------------- 축제 ----------------
-  S.festival = (sim, t) => {
+  S.festival = (sim, t, name = '모닥불 축제') => {
     if (t.fireAlarm) return;
     t.stock.food -= Math.floor(t.members.length * 0.5);
     t.lastFestival = sim.year;
@@ -594,8 +609,8 @@
         S.bump(sim, a, b, 0, rand(5, 15) * attraction(a, b)); S.bump(sim, b, a, 0, rand(5, 15) * attraction(a, b));
       }
     }
-    for (const m of t.members) if (m.adult && chance(0.3)) m.log(sim, `${t.name}의 축제에서 춤을 추었다`);
-    t.log(sim, `${josa(t.name, '이/가')} 모닥불 축제를 열었습니다`, sim.humans.length < 40);
+    for (const m of t.members) if (m.adult && chance(0.3)) m.log(sim, `${t.name}의 ${name}에서 춤을 추었다`);
+    t.log(sim, `${josa(t.name, '이/가')} ${josa(name, '을/를')} 열었습니다`, sim.humans.length < 40);
   };
 
   // ---------------- 데이트 ----------------

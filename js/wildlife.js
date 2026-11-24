@@ -116,9 +116,14 @@
     }
     // 곰: 가까이 오는 사람을 공격
     if (K.territorial && !a.target && a.cool <= 0) {
-      sim.near(a.x, a.y, 2, (h) => { if (!a.target && !h.jail && chance(0.5)) { a.target = { human: h }; } });
+      sim.near(a.x, a.y, 2, (h) => { if (!a.target && !h.jail && chance(0.5 * Math.min(1, sim.dt * 4))) { a.target = { human: h }; } });
     }
     // 맹수: 사냥감 고르기
+    // 맹수는 피 냄새를 맡고 모여든다
+    if (K.predator && !a.target && sim.blood && sim.blood.length && chance(0.3)) {
+      const b = sim.blood.find((b) => G.Blood.ageDays(sim, b) < 8 && G.dist(b.x, b.y, a.x, a.y) < 15);
+      if (b) { a.tx = b.x + rand(-1, 1); a.ty = b.y + rand(-1, 1); }
+    }
     if (K.predator && !a.target && a.hp > K.hp * 0.4) {
       const r = K.predator === 'bold' ? 9 : 7;
       const core = K.predator === 'bold' ? 8 : 10;
@@ -127,12 +132,14 @@
         if (villageNear(sim, h.x, h.y, core)) return;
         let others = 0;
         sim.near(h.x, h.y, 4, (o) => { if (o !== h) others++; });
-        const p = K.predator === 'lone' ? (others ? 0 : 0.5) : (h.age < 14 ? 0.4 : others >= 2 ? 0.08 : 0.25);
-        if (chance(p)) a.target = { human: h };
+        let p = K.predator === 'lone' ? (others ? 0 : 0.3) : (h.age < 14 ? 0.4 : others >= 2 ? 0.08 : 0.25);
+        if (sim.isNight()) p *= 1.8;          // 맹수는 밤에 사냥한다
+        if (h.state === 'sleep') p *= 1.5;
+        if (chance(p * sim.dt)) a.target = { human: h };
       });
       if (!a.target) {
         const prey = W.near(sim, a.x, a.y, 10, (b) => b.tame && b.kind !== 'wolf');
-        if (prey && chance(0.4)) a.target = { animal: prey };
+        if (prey && chance(0.4 * sim.dt)) a.target = { animal: prey };
       }
       if (a.target && a.target.human && K.predator === 'bold' && !a.roared) {
         a.roared = true;
@@ -152,6 +159,7 @@
       // 동물끼리 싸움 (맹수 vs 가축, 개 vs 맹수)
       const b = tg.animal;
       b.hp -= rand(8, 16) * (a.kind === 'tiger' ? 1.6 : 1);
+      G.Blood.add(sim, b.x, b.y, 0.6, 'animal');
       sim.effects.push({ kind: 'claw', x: b.x, y: b.y, age: 0, ttl: 20 });
       if (W.KINDS[b.kind].fight && b.alive && chance(0.6)) a.hp -= rand(5, 12);
       if (b.hp <= 0) {
@@ -171,6 +179,7 @@
     const h = tg.human;
     const [d0, d1] = K.dmg || [6, 12];
     h.health -= rand(d0, d1);
+    G.Blood.splash(sim, h.x, h.y, 2, 0.6, 'drops');
     h.say('!', 40);
     if (h.tribe) h.tribe.beastHeat = (h.tribe.beastHeat || 0) + 1;
     sim.effects.push({ kind: 'claw', x: h.x, y: h.y, age: 0, ttl: 20 });
@@ -299,6 +308,7 @@
     }
     if (a.hp <= 0) {
       a.alive = false;
+      G.Blood.splash(sim, a.x, a.y, 2, 0.7, 'animal');
       h.carry = 'food'; h.carryAmt = K.food;
       h.hunts = (h.hunts || 0) + 1;
       sim.stats.hunts = (sim.stats.hunts || 0) + 1;

@@ -12,6 +12,21 @@
     EVENT_CAP: 150,    // 세계 사건 기록 최대 개수
   };
 
+  // 시간 흐름 5단계
+  //  tpd: 1배속에서 하루가 몇 틱인지 (60틱 = 1초)
+  //  pace: 활동 속도 (배고픔·일·휴식). 느린 단계에서는 하루하루가 자세히 보이도록 활동도 느려진다
+  //  night: 밤 화면, sleep: 밤에 집에 가서 잔다
+  G.TIME_MODES = {
+    vfast: { name: '아주 빠름', desc: '하루 0.25초 · 1년 10초', tpd: 15, pace: 1, night: false, sleep: false, speeds: [1, 3, 10, 30] },
+    fast: { name: '빠름', desc: '하루 2초 · 1년 1분 20초', tpd: 120, pace: 1, night: false, sleep: false, speeds: [1, 3, 10, 30] },
+    normal: { name: '보통', desc: '하루 5초 · 1년 3분 20초', tpd: 300, pace: 1, night: true, sleep: false, speeds: [1, 3, 10, 30] },
+    slow: { name: '느림', desc: '하루 1분 · 1년 40분', tpd: 3600, pace: 0.2, night: true, sleep: true, speeds: [1, 3, 10, 30, 100] },
+    vslow: { name: '아주 느림', desc: '하루 10분 · 1년 6시간 40분', tpd: 36000, pace: 0.04, night: true, sleep: true, speeds: [1, 3, 10, 30, 100] },
+  };
+  G.CFG.DAYS = 40;                         // 1년 = 4계절 × 10일
+  G.CFG.BPD = G.CFG.TPY / G.CFG.DAYS;      // 하루 = 기본 시간 15
+  G.SEASONS = ['봄', '여름', '가을', '겨울'];
+
   G.rand = (a, b) => a + Math.random() * (b - a);
   G.randi = (a, b) => Math.floor(a + Math.random() * (b - a + 1));
   G.pick = (arr) => arr[Math.floor(Math.random() * arr.length)];

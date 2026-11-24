@@ -38,6 +38,11 @@
       this.scheduled = [];
       this.relations = new Map();
       this.tick = 0; this.year = 0;
+      this.bt = 0;   // 달력 시간 (기본 시간 단위, 1년 = 600)
+      this.at = 0;   // 활동 시간 (배고픔·일·휴식)
+      this.setTimeMode(opts.time || 'normal');
+      this.lastSeason = 0;
+      this.lastPrayEvent = -99;
       this.faith = 120; this.faithRate = 0;
       this.drought = 0;
       this.lastPrayEvent = -9999;
@@ -65,6 +70,7 @@
       for (let i = 0; i < n0; i++) {
         const p = w.nearestWalkable(spot.x + rand(-3, 3), spot.y + rand(-3, 3), 5) || spot;
         const h = this.spawnHuman(p.x, p.y, { gender: i % 2 ? 'F' : 'M' });
+        h.camp = { x: spot.x, y: spot.y };
         h.log(this, '이 섬에서 눈을 떴다');
       }
       this.event(`신이 깨어났습니다. 섬에 ${n0}명의 인간이 살고 있습니다`, '#f5d76e', spot.x, spot.y);
@@ -78,17 +84,52 @@
     }
 
     // ---------------- 한 틱 ----------------
+    // ---------------- 시간 ----------------
+    setTimeMode(k) {
+      const M = G.TIME_MODES[k] || G.TIME_MODES.normal;
+      this.timeMode = G.TIME_MODES[k] ? k : 'normal';
+      this.mode = M;
+      this.pace = M.pace;
+      this.dt = G.CFG.BPD / M.tpd;
+    }
+    get day() { return Math.floor(this.bt / G.CFG.BPD); }
+    get dayOfYear() { return this.day % G.CFG.DAYS; }
+    get season() { return Math.floor(this.dayOfYear / 10); }
+    get hour() { return (this.bt / G.CFG.BPD % 1) * 24; }
+    isNight() { const h = this.hour; return h >= 21 || h < 5; }
+    sleepTime() { return this.mode.sleep && this.isNight(); }
+    // 밤의 어둡기 0~1 (해질녘·새벽은 중간)
+    darkness() {
+      if (!this.mode.night) return 0;
+      const h = this.hour;
+      if (h >= 21 || h < 4) return 1;
+      if (h >= 18) return (h - 18) / 3;
+      if (h < 6) return 1 - (h - 4) / 2;
+      return 0;
+    }
+    regrowMult() { return (this.drought ? 0.3 : 1) * [1.25, 1.05, 0.9, 0.35][this.season]; }
+
     step() {
       this.tick++;
-      this.year = this.tick / G.CFG.TPY;
+      G.curSim = this;
+      const pBt = this.bt, pAt = this.at;
+      this.bt += this.dt; this.at += this.pace;
+      this.year = this.bt / G.CFG.TPY;
+      const cross = (a, b, n) => Math.floor(b / n) !== Math.floor(a / n);
       this.rebuildBuckets();
       const hs = this.humans;
       for (let i = 0; i < hs.length; i++) if (hs[i].alive) hs[i].update(this);
       G.Wild.tick(this);
-      if (this.tick % 10 === 0) { this.world.regrow(this.drought ? 0.3 : 1); G.Fire.tick(this); }
-      if (this.tick % 60 === 30) G.Fire.regrow(this);
-      if (this.tick % 60 === 0) { this.social(); this.computeFaith(); }
-      if (this.tick % G.CFG.TPY === 0) this.yearly();
+      G.Weather.tick(this);
+      if (cross(pAt, this.at, 10)) this.world.regrow(this.regrowMult());
+      if (cross(pBt, this.bt, 10)) G.Fire.tick(this);
+      if (cross(pBt + 30, this.bt + 30, 60)) { G.Fire.regrow(this); G.Blood.expire(this); G.Weather.lifeTick(this); }
+      if (cross(pAt, this.at, 60)) { G.Social.activityTick(this); this.computeFaith(); }
+      if (cross(pBt, this.bt, 60)) this.social();
+      if (cross(pBt, this.bt, G.CFG.TPY)) this.yearly();
+      // 살림(세금·수입·식량 상함·집 짓기·동물 번식)은 활동 시간 기준으로 한 해가 지날 때
+      if (cross(pAt, this.at, G.CFG.TPY)) { for (const t of this.tribes) if (t.alive) t.yearly(this, 'econ'); G.Wild.yearly(this); }
+      if (this.season !== this.lastSeason) this.seasonChange();
       if (this.tick % 30 === 0) this.humans = this.humans.filter((h) => h.alive);
       this.faith += this.faithRate;
       // 예약된 일 (운석 낙하 등)
@@ -148,8 +189,8 @@
 
     // ---------------- 사회 (60틱마다) ----------------
     social() {
-      // 만남, 우정, 다툼, 연애, 결혼, 임신은 social.js에서
-      G.Social.tick(this);
+      // 마음·범죄·질병·결혼·임신 (달력 기준). 수다와 연애 감정은 activityTick (활동 기준)
+      G.Social.lifeTick(this);
       G.Crime.investigate(this);
       this.tribelessGathering();
       if (this.humans.length > this.stats.maxPop) this.stats.maxPop = this.humans.length;
@@ -318,10 +359,18 @@
       for (const t of [a, b]) for (const m of t.members) if (m.job === J.WARRIOR && chance(0.6)) t.assignJob(this, m);
     }
 
+    // ---------------- 계절 ----------------
+    seasonChange() {
+      this.lastSeason = this.season;
+      this.world.dirty = true;
+      const s = G.SEASONS[this.season];
+      if (this.timeMode !== 'vfast') this.event(`${Math.floor(this.year)}년 ${josa(s, '이/가')} 왔습니다${this.season === 3 ? '. 곡식이 자라지 않습니다' : this.season === 2 ? '. 추수의 계절입니다' : ''}`, ['#9be36b', '#f5d76e', '#f0a050', '#cfe6ff'][this.season]);
+      for (const t of this.tribes) if (t.alive) t.seasonal(this, this.season);
+    }
+
     // ---------------- 해마다 ----------------
     yearly() {
-      for (const t of this.tribes) if (t.alive) t.yearly(this);
-      G.Wild.yearly(this);
+      for (const t of this.tribes) if (t.alive) t.yearly(this, 'life');
       if (!this.drought && this.year > 3 && chance(0.06)) {
         this.drought = randi(1, 2);
         this.event('가뭄이 시작되었습니다. 땅이 메마릅니다', '#e0a040');
@@ -397,6 +446,8 @@
       else if (age >= 80) this.event(`${josa(h.name, '이/가')} ${age}세로 긴 삶을 마쳤습니다`, '#aaa', h.x, h.y);
       if (this.stats.deaths === 1) this.event(`세상에 첫 죽음이 찾아왔습니다. ${josa(h.name, '이/가')} 숨졌습니다`, '#aaa', h.x, h.y);
       this.effects.push({ kind: 'soul', x: h.x, y: h.y, age: 0, ttl: 90 });
+      // 싸우다 죽거나 맹수에게 당하면 피가 고인다 (살인은 crime.js에서)
+      if (cause !== '살인' && (killer || ['전투', '반역', '늑대', '호랑이', '곰', '상처'].includes(cause) || /사냥 중 사고/.test(cause))) G.Blood.splash(this, h.x, h.y, 3, 0.8, 'pool');
     }
 
     event(text, color = '#ddd', x, y) {
@@ -417,7 +468,7 @@
           if (!p) return { ok: false, msg: '물 위에는 만들 수 없습니다' };
           const a = this.spawnHuman(p.x - 0.2, p.y, { gender: 'M', faith: 80, age: rand(17, 22) });
           const b = this.spawnHuman(p.x + 0.2, p.y, { gender: 'F', faith: 80, age: rand(17, 22) });
-          for (const h of [a, b]) { h.log(this, '신의 손에서 빚어져 태어났다'); h.miracles++; }
+          for (const h of [a, b]) { h.log(this, '신의 손에서 빚어져 태어났다'); h.miracles++; h.camp = { x: p.x, y: p.y }; }
           this.effects.push({ kind: 'bless', x: p.x, y: p.y, r: 2, age: 0, ttl: 60 });
           this.effects.push({ kind: 'beam', x: p.x, y: p.y, age: 0, ttl: 70 });
           this.event(`신이 ${josa(a.name, '과/와')} ${josa(b.name, '을/를')} 빚어냈습니다`, '#f5d76e', p.x, p.y);
@@ -438,6 +489,7 @@
           });
           this.effects.push({ kind: 'rain', x, y, r, age: 0, ttl: 150 });
           G.Fire.rain(this, x, y, r);
+          if (G.Blood.wash(this, x, y, r)) this.event('신이 내린 비가 땅의 핏자국을 씻어 냈습니다', '#7fc8f8', x, y);
           break;
         }
         case 'bless': {

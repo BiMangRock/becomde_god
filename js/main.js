@@ -59,11 +59,46 @@
     const val = (opt) => el.querySelector(`[data-opt="${opt}"].on`).dataset.v;
     $('setup-go').addEventListener('click', () => {
       const [W, H] = SIZES[val('size')];
-      newWorld({ W, H, pop: +val('pop'), animals: +val('animals'), seed: $('setup-seed').value.trim() || undefined });
+      newWorld({ W, H, pop: +val('pop'), animals: +val('animals'), time: val('time'), seed: $('setup-seed').value.trim() || undefined });
+      syncTimeUI();
       el.hidden = true; app.paused = false;
       app.toast(`${W}×${H} 크기의 새 세상이 열렸습니다`);
     });
     $('setup-cancel').addEventListener('click', () => { el.hidden = true; app.paused = false; });
+  }
+
+  // ---------- 시간 흐름 ----------
+  function syncTimeUI() {
+    const k = app.sim.timeMode;
+    $('time-mode').value = k;
+    const M = G.TIME_MODES[k];
+    const b100 = document.querySelector('#speed [data-speed="100"]');
+    b100.hidden = !M.speeds.includes(100);
+    if (app.speed === 100 && b100.hidden) setSpeed(30);
+  }
+  function bindTime() {
+    $('time-mode').addEventListener('change', (e) => {
+      app.sim.setTimeMode(e.target.value);
+      syncTimeUI();
+      app.toast(`시간 흐름: ${G.TIME_MODES[e.target.value].name} (${G.TIME_MODES[e.target.value].desc})`);
+    });
+    // 건너뛰기: 잠시 가장 빠른 흐름으로 돌려 계산만 한다
+    const skip = (until, label) => {
+      const sim = app.sim, keep = sim.timeMode;
+      sim.setTimeMode('vfast');
+      let n = 0;
+      while (!until(sim) && n++ < 3000) sim.step();
+      sim.setTimeMode(keep);
+      app.toast(label);
+    };
+    $('skip-morning').addEventListener('click', () => {
+      const d0 = app.sim.day;
+      skip((s) => (s.day > d0 || s.hour < 5) && s.hour >= 5 && s.hour < 8, "아침이 밝았습니다");
+    });
+    $('skip-season').addEventListener('click', () => {
+      const s0 = app.sim.season;
+      skip((s) => s.season !== s0, `${G.SEASONS[(s0 + 1) % 4]}이 되었습니다`);
+    });
   }
 
   // ---------- 미니맵 ----------
@@ -243,6 +278,7 @@
       if (e.key === '1') setSpeed(1);
       if (e.key === '2') setSpeed(3);
       if (e.key === '3') setSpeed(10);
+      if (e.key === '4') setSpeed(30);
       if (e.key === '+' || e.key === '=') R.zoomAt(R.vw / 2, R.vh / 2, 1.25);
       if (e.key === '-') R.zoomAt(R.vw / 2, R.vh / 2, 0.8);
       if (e.key === 'Escape') { setTool('inspect'); app.select(null); }
@@ -278,8 +314,9 @@
     if (app.speed && !app.paused) {
       acc += dt * 60 * app.speed;
       let n = 0;
-      while (acc >= 1 && n < 40) { app.sim.step(); acc -= 1; n++; }
-      if (n >= 40) acc = 0;
+      const cap = app.speed >= 30 ? 110 : 40;
+      while (acc >= 1 && n < cap) { app.sim.step(); acc -= 1; n++; }
+      if (n >= cap) acc = 0;
     }
     // 땅 올리기/내리기는 누르고 있는 동안 계속
     if (app.isHoldingPower() && frame % 3 === 0 && R.brush) usePower(R.brush.x, R.brush.y);
@@ -304,6 +341,9 @@
       $('s-pop').textContent = sim.humans.length;
       $('s-tribes').textContent = sim.tribes.filter((t) => t.alive).length;
       $('s-year').textContent = `${Math.floor(sim.year)}년`;
+      const hr = Math.floor(sim.hour);
+      const tod = hr < 5 ? '밤' : hr < 9 ? '아침' : hr < 17 ? '낮' : hr < 21 ? '저녁' : '밤';
+      $('s-date').textContent = sim.timeMode === 'vfast' ? G.SEASONS[sim.season] : `${G.SEASONS[sim.season]} ${sim.dayOfYear % 10 + 1}일 · ${tod} ${hr}시`;
       $('s-drought').hidden = !sim.drought;
       refreshTools();
       app.ui.render();
@@ -322,6 +362,7 @@
   app.ui.render(true);
   bindSetup();
   bindMinimap();
+  bindTime();
   openSetup(true);
   window.app = app; // 디버깅용
   requestAnimationFrame(loop);

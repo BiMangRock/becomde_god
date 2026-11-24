@@ -398,6 +398,10 @@
         if (t <= T.WATER) sh = clamp(0.7 + this.height[i] * 0.9, 0.6, 1.1);
         else sh = clamp(0.92 + (this.height[i] - 0.5) * 0.45, 0.78, 1.12);
         if (this.burnt && this.burnt[i]) sh *= 1 - this.burnt[i] / 380;
+        // 계절: 가을엔 숲과 풀이 물들고, 겨울엔 눈이 덮인다
+        if (this.season === 2 && (t === T.FOREST || t === T.GRASS)) { r = lerp(r, 196, 0.35); g = lerp(g, 140, 0.25); b = lerp(b, 60, 0.3); }
+        else if (this.season === 3 && t >= T.SAND && t <= T.MOUNTAIN) { const k = t === T.FOREST ? 0.45 : 0.62; r = lerp(r, 236, k); g = lerp(g, 240, k); b = lerp(b, 246, k); }
+        else if (this.season === 3 && t === T.WATER) { r = lerp(r, 170, 0.4); g = lerp(g, 200, 0.4); b = lerp(b, 225, 0.4); }
         const o = i * 4;
         data[o] = r * sh; data[o + 1] = g * sh; data[o + 2] = b * sh; data[o + 3] = 255;
       }

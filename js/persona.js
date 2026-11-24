@@ -127,6 +127,7 @@
       let p = 0.004 * (1.6 - h.body / 100);
       if (h.age < 5 || h.age > 60) p *= 2;
       if (h.hunger > 80) p *= 2;
+      if (sim.season === 3) p *= 2; // 겨울에는 병이 잦다
       if (chance(p)) {
         h.sick = { name: pick(['열병', '고뿔', '배앓이', '기침병']), left: randi(4, 10) };
         if (h.body < 30 || chance(0.3)) h.log(sim, `${h.sick.name}에 걸려 앓아누웠다`);

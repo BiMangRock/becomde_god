@@ -83,30 +83,32 @@
     // ---------------- 매 틱 ----------------
     update(sim) {
       const TPY = G.CFG.TPY;
-      this.age += 1 / TPY;
+      const dt = sim.dt, pace = sim.pace;
+      this.age += dt / TPY;
       if (this.emoteT > 0) this.emoteT--;
       if (this.job === J.CHILD && this.age >= 14) this.growUp(sim);
 
-      if (this.pregnant > 0 && --this.pregnant === 0) {
-        G.Social.deliver(sim, this);
-        if (!this.alive) return;
+      if (this.pregnant > 0) {
+        this.pregnant -= dt;
+        if (this.pregnant <= 0) { this.pregnant = 0.0001; G.Social.deliver(sim, this); if (!this.alive) return; }
       }
-      this.hunger += (this.age < 14 ? 0.07 : 0.12) * (sim.drought ? 1.15 : 1) * (this.pregnant ? 1.2 : 1);
+      const sleeping = this.state === 'sleep';
+      this.hunger += (this.age < 14 ? 0.07 : 0.12) * pace * (sim.drought ? 1.15 : 1) * (this.pregnant ? 1.2 : 1) * (sleeping ? 0.5 : 1) * (sim.season === 3 ? 1.1 : 1);
       if (this.hunger >= 100) {
         this.hunger = 100;
-        this.health -= 0.25;
-        this.faith = Math.max(0, this.faith - 0.01);
+        this.health -= 0.25 * pace;
+        this.faith = Math.max(0, this.faith - 0.01 * pace);
       } else if (this.hunger < 60) {
-        this.health = Math.min(this.maxHp, this.health + 0.05 * (0.6 + this.body / 125));
+        this.health = Math.min(this.maxHp, this.health + 0.05 * pace * (0.6 + this.body / 125) * (sleeping ? 2 : 1));
       }
       if (this.health <= 0) return sim.kill(this, this.hunger >= 100 ? '굶주림' : '상처');
       if (this.health > this.maxHp) this.health = this.maxHp;
       // 체력이 좋으면 오래 산다
       const oldAt = 50 + this.body * 0.12;
-      if (this.age > oldAt && chance(Math.pow((this.age - oldAt) / 28, 2) / TPY)) return sim.kill(this, '노환');
+      if (this.age > oldAt && chance(Math.pow((this.age - oldAt) / 28, 2) / TPY * dt)) return sim.kill(this, '노환');
 
       const base = this.has('신앙심 깊은') ? 55 : this.has('의심 많은') ? 15 : 30;
-      this.faith += (base - this.faith) * 0.0003;
+      this.faith += (base - this.faith) * 0.0003 * dt;
 
       // 들고 있는 식량 먹기
       if (this.hunger > 55) {
@@ -128,8 +130,12 @@
     }
 
     think(sim) {
-      if (this.timer > 0) this.timer--;
+      if (this.timer > 0) this.timer -= sim.pace;
       switch (this.state) {
+        case 'sleep':
+          if (!sim.sleepTime() || (this.tribe && this.tribe.fireAlarm) || this.hunger > 90) { this.state = 'idle'; this.say('☀', 60); }
+          else if (chance(0.004)) this.say('z', 80);
+          break;
         case 'idle': this.decide(sim); break;
         case 'goto':
           if (this.arrived()) this.onArrive(sim);
@@ -142,7 +148,7 @@
         case 'gather': this.doGather(sim); break;
         case 'pray':
           if (this.timer <= 0) this.state = 'idle';
-          else if (this.timer % 30 === 0) this.doPray(sim);
+          else { this.prayAcc = (this.prayAcc || 0) + sim.pace; if (this.prayAcc >= 30) { this.prayAcc -= 30; this.doPray(sim); } }
           break;
         case 'rest': case 'party': case 'hobby': if (this.timer <= 0) this.state = 'idle'; break;
         case 'fight': this.doFight(sim); break;
@@ -160,6 +166,11 @@
     decide(sim) {
       const t = this.tribe;
       const w = sim.world;
+
+      // 0) 밤에는 집에 가서 잔다 (느린 시간 흐름에서). 경비병·경비원 일부는 밤에도 지킨다
+      if (sim.sleepTime() && this.hunger < 80 && !((this.job === J.GUARD || this.job === J.WATCH) && this.id % 2 === 0) && !(t && t.fireAlarm)) {
+        return this.goSleep(sim);
+      }
 
       // 1) 배고픔 (마을에서 멀수록 일찍 돌아간다)
       const far = t ? Math.min(30, G.dist(this.x, this.y, t.cx, t.cy) * 1.2) : 0;
@@ -205,11 +216,14 @@
         }
       }
       if (!t) {
+        // 떠돌이는 무리의 야영지 근처에서 지낸다 (무법자는 제 갈 길을 간다)
+        const camp = !this.outlaw && this.camp ? this.camp : { x: this.x, y: this.y };
+        if (this.camp && !this.outlaw && G.dist(camp.x, camp.y, this.x, this.y) > 10) return this.goTo(sim, camp.x + rand(-3, 3), camp.y + rand(-3, 3), { kind: 'wander' });
         if (this.hunger > 25 || chance(0.3)) {
-          const ft = w.findResource(this.x, this.y, 'food', 8);
+          const ft = w.findResource(camp.x, camp.y, 'food', 9);
           if (ft) return this.goTo(sim, ft.x + 0.5, ft.y + 0.5, { kind: 'gather', res: 'food', tile: ft.i, cap: 3 });
         }
-        return this.wander(sim, this.x, this.y, 6);
+        return this.wander(sim, camp.x, camp.y, 5);
       }
 
       // 5) 여가: 데이트, 친구 찾아가기
@@ -264,7 +278,8 @@
           if (this.planTrade(sim)) return;
           return this.wander(sim, t.cx, t.cy, 4);
         case J.WARRIOR:
-          if (t.wars.size && this.hunger < 70) return this.goToWar(sim);
+          // 전쟁 횟수는 달력 기준이 되도록 출정 빈도를 맞춘다
+          if (t.wars.size && this.hunger < 70 && chance(Math.min(1, sim.dt / sim.pace))) return this.goToWar(sim);
           if (!t.members.some((m) => m.job === J.GUARD) && G.Crime.guardDecide(sim, this)) return;
           if (chance(0.5)) return this.work(sim, 'food');
           return this.wander(sim, t.cx, t.cy, 9);
@@ -277,6 +292,17 @@
         default:
           return this.work(sim, 'food');
       }
+    }
+
+    goSleep(sim) {
+      const t = this.tribe;
+      if (t && t.houses.length) {
+        const hs = t.houses[this.id % t.houses.length];
+        if (G.dist(hs.x, hs.y, this.x, this.y) < 30 && G.dist(hs.x, hs.y, this.x, this.y) > 0.8) return this.goTo(sim, hs.x + rand(-0.3, 0.3), hs.y + 0.4, { kind: 'sleep' });
+      } else if (t && G.dist(t.cx, t.cy, this.x, this.y) > 3 && G.dist(t.cx, t.cy, this.x, this.y) < 30) {
+        return this.goTo(sim, t.cx + rand(-2, 2), t.cy + rand(-2, 2), { kind: 'sleep' });
+      }
+      this.state = 'sleep';
     }
 
     work(sim, res) {
@@ -327,6 +353,7 @@
           if (this.tribe && !this.tribe.feed(sim, this)) this.refused = true;
           break;
         case 'wander': this.state = 'rest'; this.timer = randi(20, 90); break;
+        case 'sleep': this.state = sim.sleepTime() ? 'sleep' : 'idle'; break;
         case 'trade-sell': this.sellGoods(sim, k.to); break;
         case 'pray': this.startPray(sim, k.why); return;
         case 'raid': this.raid(sim, k.to); break;
@@ -418,8 +445,8 @@
       this.say('기도', 150);
       if (why === '굶주림') {
         this.log(sim, '굶주림 속에 신에게 음식을 달라고 기도했다');
-        if (sim.tick - sim.lastPrayEvent > G.CFG.TPY / 2) {
-          sim.lastPrayEvent = sim.tick;
+        if (sim.year - sim.lastPrayEvent > 0.5) {
+          sim.lastPrayEvent = sim.year;
           sim.event(`${josa(this.name, '이/가')} 굶주림 속에 신에게 기도합니다`, '#f5d76e', this.x, this.y);
         }
       } else if (why === '의식' && sim.year - (this.lastRitualLog || -99) > 12) {
@@ -531,6 +558,7 @@
       dmg *= 0.7 + this.body * 0.006;
       if (this.age < 16 || this.age > 60) dmg *= 0.6;
       e.health -= dmg;
+      G.Blood.add(sim, e.x, e.y, 0.5, 'drops');
       e.say('!', 30);
       // 맞은 쪽 반응
       if (e.alive && e.state !== 'fight') {
@@ -576,6 +604,7 @@
         if (w.walkable(nx, ny)) {
           this.x = nx; this.y = ny;
           this.walk += sp * 4;
+          G.Blood.trail(sim, this);
           this.moving = true;
           if (Math.abs(Math.cos(a)) > 0.2) this.dir = Math.cos(a) >= 0 ? 1 : -1;
           if (off !== 0) this.stuck++; else if (this.stuck > 0) this.stuck--;
