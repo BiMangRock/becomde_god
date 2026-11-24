@@ -13,6 +13,9 @@
     bless: { name: '축복', cost: 25, icon: '✦', desc: '건강과 배부름, 신앙이 오른다' },
     lightning: { name: '번개', cost: 10, icon: 'ϟ', desc: '한 점을 내려친다. 보는 이는 두려워한다' },
     meteor: { name: '운석', cost: 80, icon: '☄', desc: '큰 재앙. 구덩이에 광석이 남는다' },
+    cupid: { name: '사랑의 화살', cost: 15, icon: '♥', desc: '두 사람을 차례로 누르면 사랑에 빠진다. 짝이 있는 사람이면 금지된 사랑이 된다' },
+    fertility: { name: '다산', cost: 20, icon: '✿', desc: '주변 부부에게 아이가 생기기 쉬워지고 출산이 안전해진다' },
+    discord: { name: '불화', cost: 15, icon: '☁', desc: '주변 사람들이 서로 미워하고 다툰다' },
     raise: { name: '땅 올리기', cost: 1, icon: '▲', desc: '누르고 있으면 땅이 솟는다' },
     lower: { name: '땅 내리기', cost: 1, icon: '▼', desc: '누르고 있으면 땅이 꺼진다' },
   };
@@ -135,32 +138,8 @@
 
     // ---------------- 사회 (60틱마다) ----------------
     social() {
-      const pop = this.humans.length;
-      for (const h of this.humans) {
-        if (!h.alive) continue;
-        // 짝 찾기
-        if (h.adult && h.age < 50 && (!h.partner || !h.partner.alive)) {
-          h.partner = null;
-          let mate = null;
-          this.near(h.x, h.y, 4, (o) => {
-            if (mate || o === h || !o.adult || o.age >= 50 || o.gender === h.gender || (o.partner && o.partner.alive)) return;
-            if (o.tribe !== h.tribe || this.isRelative(h, o)) return;
-            mate = o;
-          });
-          if (mate && chance(0.25)) {
-            h.partner = mate; mate.partner = h;
-            h.log(this, `${josa(mate.name, '과/와')} 부부가 되었다`);
-            mate.log(this, `${josa(h.name, '과/와')} 부부가 되었다`);
-            h.say('♥', 90); mate.say('♥', 90);
-          }
-        }
-        // 아이 낳기
-        if (h.gender === 'F' && h.partner && h.partner.alive && h.age >= 18 && h.age < 45 && this.year - h.lastBirth >= 2 && pop < G.CFG.MAX_POP) {
-          const t = h.tribe;
-          const fed = t ? t.stock.food > t.members.length * 0.5 : h.hunger < 50;
-          if (fed && chance(0.08)) this.birth(h, h.partner);
-        }
-      }
+      // 만남, 우정, 다툼, 연애, 결혼, 임신은 social.js에서
+      G.Social.tick(this);
       this.tribelessGathering();
       if (this.humans.length > this.stats.maxPop) this.stats.maxPop = this.humans.length;
       const ms = [20, 50, 100, 200, 400, 800];
@@ -189,8 +168,9 @@
       c.log(this, `${josa(mom.name, '과/와')} ${dad.name} 사이에서 태어났다`);
       const kind = c.gender === 'M' ? '아들' : '딸';
       mom.log(this, `${kind} ${josa(c.name, '을/를')} 낳았다`);
-      dad.log(this, `${kind} ${josa(c.name, '이/가')} 태어났다`);
-      mom.children.push(c.id); dad.children.push(c.id);
+      mom.children.push(c.id);
+      if (dad.alive && dad.log) { dad.log(this, `${kind} ${josa(c.name, '이/가')} 태어났다`); dad.children.push(c.id); }
+      else c.log(this, `아버지 ${josa(dad.name, '은/는')} 태어나기 전에 세상을 떠났다`);
       mom.lastBirth = this.year;
       mom.say('♥', 60);
       if (mom.tribe) { mom.tribe.add(this, c); mom.tribe.births++; }
@@ -265,6 +245,7 @@
       for (const m of shuffle(cands)) if (movers.size < t.members.length / 5 && m !== t.chief) movers.add(m);
       for (const m of [...movers]) {
         if (m.partner && m.partner.alive && m.partner.tribe === t && m.partner !== t.chief) movers.add(m.partner);
+        if (m.lover && m.lover.alive && m.lover.tribe === t && m.lover !== t.chief) movers.add(m.lover);
       }
       for (const m of [...movers]) {
         for (const cid of m.children) {
@@ -342,14 +323,33 @@
       h.died = this.year;
       const age = Math.floor(h.age);
       h.log(this, killer ? `${killer.tribe ? killer.tribe.name + '의 ' : ''}${killer.name}에게 쓰러졌다 (${age}세)` : `${josa(cause, '으로/로')} 세상을 떠났다 (${age}세)`);
+      const S = G.Social;
       if (h.partner && h.partner.alive) {
         h.partner.log(this, `배우자 ${josa(h.name, '을/를')} 잃었다`);
-        h.partner.happy -= 20; h.partner.partner = null;
+        S.addMood(this, h.partner, 'widowed'); h.partner.say('…', 200);
+        h.partner.partner = null;
+      }
+      if (h.lover && h.lover.alive) {
+        h.lover.log(this, `연인 ${josa(h.name, '을/를')} 잃었다`);
+        S.addMood(this, h.lover, 'widowed', 0.6); h.lover.lover = null;
+      }
+      for (const p of h.parents) {
+        const pp = this.byId.get(p.id);
+        if (pp && pp.alive) { S.addMood(this, pp, 'lostChild'); pp.log(this, `${h.gender === 'M' ? '아들' : '딸'} ${josa(h.name, '을/를')} 잃었다`); }
+      }
+      // 친구들의 슬픔
+      for (const o of this.humans) {
+        if (!o.alive || o === h) continue;
+        const r = o.rel.get(h.id);
+        if (r && r.v >= 50 && !S.isFamily(o, h.id)) {
+          S.addMood(this, o, 'lostFriend');
+          if (r.v >= 75) o.log(this, `절친 ${josa(h.name, '이/가')} 세상을 떠나 슬퍼했다`);
+        }
       }
       let n = 0;
       for (const cid of h.children) {
         const c = this.byId.get(cid);
-        if (c && c.alive && n++ < 6) c.log(this, `${h.gender === 'M' ? '아버지' : '어머니'} ${josa(h.name, '이/가')} 세상을 떠났다`);
+        if (c && c.alive && n++ < 6) { c.log(this, `${h.gender === 'M' ? '아버지' : '어머니'} ${josa(h.name, '이/가')} 세상을 떠났다`); S.addMood(this, c, 'lostParent'); }
       }
       const t = h.tribe;
       const wasChief = t && t.chief === h;
@@ -409,7 +409,7 @@
           }
           w.dirty = true;
           witness(r + 2, (h) => {
-            h.faith = Math.min(100, h.faith + (h.has('의심 많은') ? 2 : 5)); h.happy += 5;
+            h.faith = Math.min(100, h.faith + (h.has('의심 많은') ? 2 : 5)); G.Social.addMood(this, h, 'rain');
             if (this.year - (h.lastRainLog || -99) > 2) { h.lastRainLog = this.year; h.log(this, '신이 내린 비를 맞았다'); }
             h.miracles++;
           });
@@ -420,7 +420,7 @@
           let n = 0;
           witness(5, (h) => {
             h.health = 100; h.hunger = Math.max(0, h.hunger - 40);
-            h.faith = Math.min(100, h.faith + (h.has('의심 많은') ? 7 : 15)); h.happy += 15;
+            h.faith = Math.min(100, h.faith + (h.has('의심 많은') ? 7 : 15)); G.Social.addMood(this, h, 'blessed');
             h.log(this, '신의 축복을 받았다'); h.miracles++; h.say('✦', 90); n++;
           });
           this.effects.push({ kind: 'bless', x, y, r: 5, age: 0, ttl: 70 });
@@ -435,7 +435,7 @@
           if (w.inb(tx, ty) && w.type[w.idx(tx, ty)] === T.FOREST) { const i = w.idx(tx, ty); w.type[i] = T.GRASS; w.wood[i] = 0; w.food[i] = 0; w.dirty = true; }
           this.destroyHouses(x, y, 1.2);
           witness(10, (h) => {
-            h.faith = Math.min(100, h.faith + (h.has('의심 많은') ? 4 : 8)); h.happy -= 10;
+            h.faith = Math.min(100, h.faith + (h.has('의심 많은') ? 4 : 8)); G.Social.addMood(this, h, 'fear');
             if (this.year - (h.lastBoltLog || -99) > 1) { h.lastBoltLog = this.year; h.log(this, '하늘에서 내리친 번개를 보고 두려움에 떨었다'); }
             h.miracles++; h.say('!', 60);
           });
@@ -443,6 +443,9 @@
           if (dead.length) this.event(`번개가 ${dead.map((d) => d.name).join(', ')}의 목숨을 앗아갔습니다`, '#fff3a0', x, y);
           break;
         }
+        case 'cupid': return { ok: false, msg: '사람을 눌러 고르세요' };
+        case 'fertility': G.Social.fertility(this, x, y); break;
+        case 'discord': G.Social.discord(this, x, y); break;
         case 'meteor': {
           this.effects.push({ kind: 'meteor', x, y, age: 0, ttl: 45 });
           this.scheduled.push({ t: 45, fn: () => this.meteorImpact(x, y) });
@@ -479,7 +482,7 @@
       this.destroyHouses(x, y, 4);
       this.near(x, y, 18, (h) => {
         if (!w.walkable(h.x, h.y)) { const p = w.nearestWalkable(h.x, h.y, 5); if (p) { h.x = p.x; h.y = p.y; } }
-        h.faith = Math.min(100, h.faith + (h.has('의심 많은') ? 8 : 15)); h.happy -= 20;
+        h.faith = Math.min(100, h.faith + (h.has('의심 많은') ? 8 : 15)); G.Social.addMood(this, h, 'terror');
         h.log(this, '하늘에서 불덩이가 떨어지는 것을 보았다'); h.miracles++; h.say('!', 90);
       });
       this.effects.push({ kind: 'boom', x, y, age: 0, ttl: 50 });

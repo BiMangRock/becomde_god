@@ -2,7 +2,7 @@
 (function () {
   const G = globalThis.G;
   const $ = (id) => document.getElementById(id);
-  const BRUSH = { inspect: 0, create: 0.6, rain: 7, bless: 5, lightning: 1.2, meteor: 4, raise: 2.6, lower: 2.6 };
+  const BRUSH = { inspect: 0, create: 0.6, rain: 7, bless: 5, lightning: 1.2, meteor: 4, cupid: 0, fertility: 5, discord: 5, raise: 2.6, lower: 2.6 };
 
   const app = {
     sim: null, renderer: null, ui: null,
@@ -46,6 +46,8 @@
   }
   function setTool(t) {
     app.tool = t;
+    app.renderer.cupidFirst = null;
+    if (t === 'cupid') app.toast('사랑에 빠뜨릴 첫 번째 사람을 누르세요');
     for (const b of document.querySelectorAll('#tools button')) b.classList.toggle('on', b.dataset.tool === t);
     app.renderer.brush = { ...(app.renderer.brush || { x: 0, y: 0 }), r: BRUSH[t] };
     $('world').style.cursor = t === 'inspect' ? 'grab' : 'crosshair';
@@ -55,6 +57,25 @@
       const p = G.POWERS[b.dataset.tool];
       b.classList.toggle('poor', p.cost > app.sim.faith);
     }
+  }
+
+  // 사랑의 화살: 두 사람을 차례로 고른다
+  function cupidClick(wx, wy) {
+    const R = app.renderer;
+    const h = app.sim.humanAt(wx, wy, Math.max(0.8, 12 / R.cam.s));
+    if (!h) return app.toast('사람을 정확히 눌러 주세요 (확대하면 쉬워요)');
+    if (!R.cupidFirst || !R.cupidFirst.alive) {
+      if (!h.adult) return app.toast('어른만 고를 수 있습니다');
+      R.cupidFirst = h;
+      const p = (h.partner && h.partner.alive && h.partner) || (h.lover && h.lover.alive && h.lover);
+      app.toast(`${h.name} 선택됨${p ? ` (이미 ${p.name}와(과) 짝이 있어요)` : ''} · 이제 상대를 누르세요`);
+      return;
+    }
+    const a = R.cupidFirst;
+    R.cupidFirst = null;
+    const r = G.Social.cupid(app.sim, a, h);
+    if (!r.ok) app.toast(r.msg);
+    else { app.toast(`${a.name} ♥ ${h.name}`); app.select({ type: 'human', h: a }); }
   }
 
   function usePower(wx, wy) {
@@ -100,6 +121,7 @@
         const [wx, wy] = R.toWorld(e.offsetX, e.offsetY);
         const cont = app.tool === 'raise' || app.tool === 'lower';
         if (cont) holdPower = true;
+        else if (app.tool === 'cupid') cupidClick(wx, wy);
         else usePower(wx, wy);
       }
       if (pan) cv.style.cursor = 'grabbing';

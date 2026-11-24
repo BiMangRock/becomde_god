@@ -4,6 +4,8 @@
   const T = G.T;
   const J = G.JOB;
 
+  const EMOTE_COLORS = { '♥': '#ff6b9a', '!': '#ff5050', '#': '#ff7b3d', '♪': '#ffe27a', '…': '#9fc3ff', '✦': '#ffe27a' };
+
   class Renderer {
     constructor(canvas, sim) {
       this.cv = canvas;
@@ -217,6 +219,11 @@
         } else {
           this.drawPerson(h, x, y, s, color);
         }
+        if (h === this.cupidFirst) {
+          ctx.strokeStyle = '#ff6fae'; ctx.lineWidth = 2.5;
+          ctx.beginPath(); ctx.arc(x, y - (s >= 10 ? s * 0.35 : 0), Math.max(8, s * 0.6), 0, Math.PI * 2); ctx.stroke();
+          this.drawHeart(x, y - Math.max(14, s * 1.1), 7, '#ff6fae');
+        }
         if (h === sel) {
           ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.5;
           ctx.beginPath(); ctx.ellipse(x, y, Math.max(5, s * 0.4), Math.max(2.5, s * 0.15), 0, 0, Math.PI * 2); ctx.stroke();
@@ -235,6 +242,8 @@
       // 그림자
       ctx.fillStyle = 'rgba(0,0,0,0.25)';
       ctx.beginPath(); ctx.ellipse(x, y, 4 * u, 1.5 * u, 0, 0, Math.PI * 2); ctx.fill();
+      const dancing = h.state === 'party';
+      if (dancing) y -= Math.abs(Math.sin(this.frame * 0.22 + h.id)) * 3 * u; // 축제 춤
       // 다리
       ctx.strokeStyle = '#4a3526'; ctx.lineWidth = Math.max(1, 1.4 * u); ctx.lineCap = 'round';
       ctx.beginPath();
@@ -255,9 +264,15 @@
       if (h.job === J.WARRIOR || h.job === J.PRIEST || h.job === J.MERCHANT) {
         ctx.fillStyle = color; ctx.fillRect(x - 2.6 * u, bodyTop + 4 * u, 5.2 * u, 1.2 * u); // 부족 띠
       }
+      // 임신한 배
+      if (h.pregnant) {
+        const prog = 1 - h.pregnant / (G.CFG.TPY * 0.75);
+        ctx.fillStyle = body;
+        ctx.beginPath(); ctx.ellipse(x + d * 1.6 * u, bodyTop + 5 * u, (1.6 + prog * 1.6) * u, (1.8 + prog * 1.2) * u, 0, 0, Math.PI * 2); ctx.fill();
+      }
       // 팔
       ctx.strokeStyle = h.skin; ctx.lineWidth = Math.max(1, 1.2 * u);
-      const praying = h.state === 'pray';
+      const praying = h.state === 'pray' || dancing;
       ctx.beginPath();
       if (praying) {
         ctx.moveTo(x - 2.4 * u, bodyTop + 2 * u); ctx.lineTo(x - 1 * u, bodyTop - 2 * u);
@@ -317,7 +332,8 @@
       if (h.emoteT > 0 && s >= 14) {
         const ey = top - (s >= 30 ? 18 : 4);
         ctx.font = 'bold 12px sans-serif'; ctx.textAlign = 'center';
-        ctx.fillStyle = h.emote === '♥' ? '#ff6b9a' : h.emote === '!' ? '#ff5050' : '#ffe27a';
+        ctx.fillStyle = EMOTE_COLORS[h.emote] || '#ffe27a';
+        if (h.emote === '♥' || h.emote === '♪' || h.emote === '#' || h.emote === '…') ctx.font = 'bold 15px sans-serif';
         ctx.fillText(h.emote, x, ey);
       } else if (h.hunger > 85 && s >= 14) {
         ctx.font = 'bold 11px sans-serif'; ctx.textAlign = 'center'; ctx.fillStyle = '#ffae42';
@@ -373,9 +389,39 @@
             break;
           }
           case 'bless': {
-            ctx.strokeStyle = `rgba(255,220,100,${1 - p})`; ctx.lineWidth = 3;
+            const col = e.color || '255,220,100';
+            ctx.strokeStyle = `rgba(${col},${1 - p})`; ctx.lineWidth = 3;
             ctx.beginPath(); ctx.arc(x, y, e.r * s * (0.3 + p), 0, Math.PI * 2); ctx.stroke();
-            ctx.fillStyle = `rgba(255,230,140,${0.25 * (1 - p)})`; ctx.fill();
+            ctx.fillStyle = `rgba(${col},${0.22 * (1 - p)})`; ctx.fill();
+            break;
+          }
+          case 'hearts': {
+            for (let k = 0; k < 7; k++) {
+              const hx = x + Math.sin(k * 2.1 + e.age * 0.05) * (8 + k * 3);
+              const hy = y - 10 - ((e.age * 0.9 + k * 13) % 60);
+              ctx.globalAlpha = Math.max(0, 1 - p) * (1 - ((e.age * 0.9 + k * 13) % 60) / 70);
+              this.drawHeart(hx, hy, 5 + (k % 3) * 2, '#ff6fae');
+            }
+            ctx.globalAlpha = 1;
+            break;
+          }
+          case 'arrow': {
+            const [x2, y2] = this.toScreen(e.x2, e.y2);
+            const t = Math.min(1, p * 2);
+            const ax = x + (x2 - x) * t, ay = y + (y2 - y) * t;
+            ctx.strokeStyle = `rgba(255,120,180,${1 - p})`; ctx.lineWidth = 2; ctx.setLineDash([5, 4]);
+            ctx.beginPath(); ctx.moveTo(x, y - 10); ctx.lineTo(ax, ay - 10); ctx.stroke(); ctx.setLineDash([]);
+            this.drawHeart(ax, ay - 10, 8, '#ff3d8b');
+            break;
+          }
+          case 'discord': {
+            ctx.fillStyle = `rgba(110,60,150,${0.3 * (1 - p)})`;
+            ctx.beginPath(); ctx.arc(x, y, 5 * s * (0.5 + p * 0.5), 0, Math.PI * 2); ctx.fill();
+            ctx.strokeStyle = `rgba(190,130,255,${0.9 * (1 - p)})`; ctx.lineWidth = 2;
+            for (let k = 0; k < 6; k++) {
+              const a = k + e.age * 0.08, r = 5 * s * 0.5;
+              ctx.beginPath(); ctx.arc(x + Math.cos(a) * r, y + Math.sin(a) * r, 6, a, a + 4); ctx.stroke();
+            }
             break;
           }
           case 'bolt': {
@@ -413,6 +459,16 @@
           }
         }
       }
+    }
+
+    drawHeart(x, y, r, color) {
+      const ctx = this.ctx;
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      ctx.moveTo(x, y + r * 0.9);
+      ctx.bezierCurveTo(x - r * 1.4, y - r * 0.1, x - r * 0.6, y - r * 1.1, x, y - r * 0.35);
+      ctx.bezierCurveTo(x + r * 0.6, y - r * 1.1, x + r * 1.4, y - r * 0.1, x, y + r * 0.9);
+      ctx.fill();
     }
 
     drawBrush() {

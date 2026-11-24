@@ -29,14 +29,20 @@
       this.ration = 0; // 도시락 (부족이 나눠주는 식량)
       this.tribe = null;
       this.job = this.age < 14 ? J.CHILD : J.NONE;
-      this.partner = null;
+      this.partner = null;   // 배우자
+      this.lover = null;     // 결혼 전 연인
+      this.affair = null;    // 몰래 만나는 사람 id
+      this.rel = new Map();  // id -> {v: 호감 -100~100, love: 사랑 0~100, name}
+      this.moodlets = [];    // 기분 요인
+      this.pregnant = 0;     // 남은 임신 기간(틱)
+      this.babyFather = null;
       // 부모·자녀는 객체 대신 {id, name}만 저장 -> 죽은 사람 객체가 메모리에 남지 않음
       this.parents = o.parents || [];
       this.children = [];
       this.traits = o.traits || G.makeTraits();
       this.faith = o.faith ?? rand(25, 55);
       if (this.has('신앙심 깊은')) this.faith = Math.max(this.faith, 60);
-      this.happy = 60;
+      this.happy = 55;
       this.story = [];
       this.alive = true;
       this.state = 'idle'; this.task = null; this.timer = 0; this.stuck = 0;
@@ -68,11 +74,14 @@
       if (this.emoteT > 0) this.emoteT--;
       if (this.job === J.CHILD && this.age >= 14) this.growUp(sim);
 
-      this.hunger += (this.age < 14 ? 0.07 : 0.12) * (sim.drought ? 1.15 : 1);
+      if (this.pregnant > 0 && --this.pregnant === 0) {
+        G.Social.deliver(sim, this);
+        if (!this.alive) return;
+      }
+      this.hunger += (this.age < 14 ? 0.07 : 0.12) * (sim.drought ? 1.15 : 1) * (this.pregnant ? 1.2 : 1);
       if (this.hunger >= 100) {
         this.hunger = 100;
         this.health -= 0.25;
-        this.happy = Math.max(0, this.happy - 0.02);
         this.faith = Math.max(0, this.faith - 0.01);
       } else if (this.hunger < 60) {
         this.health = Math.min(100, this.health + 0.05);
@@ -82,7 +91,6 @@
 
       const base = this.has('신앙심 깊은') ? 55 : this.has('의심 많은') ? 15 : 30;
       this.faith += (base - this.faith) * 0.0003;
-      this.happy += (60 - this.happy) * 0.001;
 
       // 들고 있는 식량 먹기
       if (this.hunger > 55) {
@@ -120,7 +128,7 @@
           if (this.timer <= 0) this.state = 'idle';
           else if (this.timer % 30 === 0) this.doPray(sim);
           break;
-        case 'rest': if (this.timer <= 0) this.state = 'idle'; break;
+        case 'rest': case 'party': if (this.timer <= 0) this.state = 'idle'; break;
         case 'fight': this.doFight(sim); break;
         default: this.state = 'idle';
       }
@@ -171,7 +179,13 @@
         return this.wander(sim, this.x, this.y, 6);
       }
 
-      // 5) 직업별 행동
+      // 5) 여가: 데이트, 친구 찾아가기
+      if (this.adult && this.hunger < 40) {
+        if ((this.partner || this.lover || this.affair) && chance(this.affair ? 0.05 : 0.03) && G.Social.startDate(sim, this)) return;
+        if (chance(0.02) && G.Social.visitFriend(sim, this)) return;
+      }
+
+      // 6) 직업별 행동
       switch (this.job) {
         case J.GATHER: case J.WOOD: case J.MINE: return this.work(sim, JOB_RES[this.job]);
         case J.MERCHANT:
@@ -241,6 +255,13 @@
         case 'trade-sell': this.sellGoods(sim, k.to); break;
         case 'pray': this.startPray(sim, k.why); return;
         case 'raid': this.raid(sim, k.to); break;
+        case 'date': this.task = null; G.Social.onDateArrive(sim, this, k); return;
+        case 'party': this.state = 'party'; this.timer = randi(180, 300); this.say('♪', 200); break;
+        case 'visit': {
+          const o = sim.byId.get(k.with);
+          if (o && o.alive && G.dist(o.x, o.y, this.x, this.y) < 3) { G.Social.interact(sim, this, o); this.state = 'rest'; this.timer = 60; }
+          break;
+        }
       }
       this.task = null;
     }
@@ -250,6 +271,8 @@
       if (this.has('부지런한')) t *= 0.7;
       if (this.has('게으른')) t *= 1.4;
       if (this.age > 60) t *= 1.3;
+      if (this.happy < 30) t *= 1.25; else if (this.happy > 70) t *= 0.85; // 기분이 일에 영향
+      if (this.pregnant) t *= 1.2;
       return Math.floor(t);
     }
 
@@ -422,6 +445,7 @@
       if (this.age > 60) sp *= 0.75;
       if (this.hunger >= 100) sp *= 0.8;
       if (this.job === J.MERCHANT) sp *= 1.15;
+      if (this.pregnant) sp *= 0.85;
       sp = Math.min(sp, d);
       const ang = Math.atan2(dy, dx);
       const offs = [0, 0.6, -0.6, 1.2, -1.2, 1.8, -1.8, 2.4, -2.4];

@@ -22,8 +22,8 @@ button.ghost { background: transparent; }
 .speed { display: flex; gap: 4px; }
 .speed button { padding: 5px 9px; min-width: 40px; }
 
-#tools { position: fixed; top: 72px; left: 10px; width: 132px; border-radius: 12px; padding: 8px; display: flex; flex-direction: column; gap: 5px; z-index: 5; }
-#tools button { display: grid; grid-template-columns: 22px 1fr auto; align-items: center; gap: 4px; text-align: left; padding: 7px 8px; }
+#tools { position: fixed; top: 72px; left: 10px; width: 150px; border-radius: 12px; padding: 8px; display: flex; flex-direction: column; gap: 5px; z-index: 5; }
+#tools button { display: grid; grid-template-columns: 22px 1fr auto; align-items: center; gap: 4px; text-align: left; padding: 7px 8px; white-space: nowrap; }
 #tools .ic { font-size: 16px; text-align: center; }
 #tools .cost { font-size: 11px; color: #9aa6b8; }
 #tools button.on .cost { color: #5a4a10; }

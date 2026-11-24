@@ -9,7 +9,8 @@
     switch (h.state) {
       case 'gather': return `${G.RES_NAME[h.task?.res] || '자원'} 모으는 중`;
       case 'pray': return '기도하는 중';
-      case 'rest': return '쉬는 중';
+      case 'rest': return h.emote === '♥' && h.emoteT > 0 ? '연인과 시간을 보내는 중' : '쉬는 중';
+      case 'party': return '축제에서 춤추는 중';
       case 'fight': return `${h.target ? h.target.name + '와(과) ' : ''}싸우는 중`;
       case 'goto':
         if (k === 'gather') return `${G.RES_NAME[h.task.res]} 모으러 가는 중`;
@@ -18,6 +19,9 @@
         if (k === 'trade-sell') { const t = sim.tribeById(h.task.to); return `${t ? t.name : '다른 부족'}에 장사하러 가는 중`; }
         if (k === 'raid') { const t = sim.tribeById(h.task.to); return `${t ? t.name : '적'} 마을로 진격하는 중`; }
         if (k === 'pray') return '기도하러 가는 중';
+        if (k === 'date') { const o = sim.byId.get(h.task.with); return `${o ? o.name + '와(과) ' : ''}${h.task.place}로 데이트하러 가는 중`; }
+        if (k === 'visit') { const o = sim.byId.get(h.task.with); return `${o ? '친구 ' + o.name + '을(를) ' : '친구를 '}만나러 가는 중`; }
+        if (k === 'party') return '축제에 가는 중';
         return '걷는 중';
       default: return '생각하는 중';
     }
@@ -95,13 +99,15 @@
         <h2>${esc(h.name)} <span class="muted">${h.gender === 'M' ? '남' : '여'} · ${Math.floor(h.age)}세</span></h2>
         <div>${t ? `<span class="chip link" data-act="tribe" data-id="${t.id}"><span class="dot" style="background:${t.color}"></span> ${esc(t.name)}</span>` : '<span class="chip">부족 없음</span>'}
           <span class="chip">${esc(h.job)}</span>${h.traits.map((x) => `<span class="chip">${esc(x)}</span>`).join('')}</div>
-        <p class="muted" style="margin:8px 0">지금 ${STATE_TEXT(h, sim)}</p>
+        <p class="muted" style="margin:8px 0">지금 ${STATE_TEXT(h, sim)}${h.pregnant ? ` · <span style="color:#ff9ac1">임신 ${Math.max(1, Math.round((1 - h.pregnant / (G.CFG.TPY * 0.75)) * 9))}개월</span>` : ''}</p>
         ${this.bars(h)}
+        ${this.moodBlock(h)}
+        ${this.relBlock(h)}
         <h4>재산과 가족</h4>
         <div class="kv">
           <span class="k">금화</span><span>${Math.floor(h.gold)}개${h.carry ? ` · ${G.RES_NAME[h.carry] || ''} ${h.carryAmt}개 운반 중` : ''}</span>
           <span class="k">부모</span><span>${h.parents.length ? h.parents.map((p) => this.personLink(p)).join(', ') : '<span class="muted">신이 빚었거나 알 수 없음</span>'}</span>
-          <span class="k">배우자</span><span>${h.partner && h.partner.alive ? this.personLink(h.partner) : '<span class="muted">없음</span>'}</span>
+          <span class="k">배우자</span><span>${h.partner && h.partner.alive ? this.personLink(h.partner) : h.lover && h.lover.alive ? '<span class="muted">미혼 · 연인 </span>' + this.personLink(h.lover) : '<span class="muted">없음</span>'}</span>
           <span class="k">자녀</span><span>${children.length ? children.join(', ') : '<span class="muted">없음</span>'}</span>
           ${h.kills ? `<span class="k">전공</span><span>${h.kills}명을 쓰러뜨림</span>` : ''}
         </div>
@@ -111,6 +117,34 @@
         </div>
         <h4>${esc(h.name)}의 이야기</h4>
         ${this.storyList(h.story)}`;
+    }
+
+    moodBlock(h) {
+      const S = G.Social, sim = this.app.sim;
+      const lab = S.moodLabel(h);
+      const chips = h.moodlets.slice().sort((a, b) => Math.abs(G.MOODS[b.k].v) - Math.abs(G.MOODS[a.k].v)).map((m) => {
+        const M = G.MOODS[m.k];
+        const col = M.v >= 0 ? '#8fd18f' : '#ff8a80';
+        const left = Math.max(0, m.until - sim.year);
+        const leftTxt = left >= 1 ? `${left.toFixed(1)}년` : `${Math.ceil(left * 12)}개월`;
+        return `<span class="chip" title="${leftTxt} 남음"><b style="color:${col}">${M.v > 0 ? '+' : ''}${M.v}</b> ${esc(M.t)}</span>`;
+      }).join('');
+      return `<h4>기분 · <span style="color:${lab.c}">${lab.t}</span> (${Math.round(h.happy)})</h4><div>${chips || '<span class="muted">특별한 일 없음</span>'}</div>`;
+    }
+
+    relBlock(h) {
+      const S = G.Social, sim = this.app.sim;
+      const order = { 배우자: 0, 연인: 1, '비밀 연인': 2, 썸: 3, 짝사랑: 4, 부모: 5, 자녀: 6, 절친: 7, 원수: 8, 친구: 9, 앙숙: 10, '전 배우자': 11, '옛 연인': 12, '먼저 간 배우자': 13, '그리운 사람': 14, '아는 사이': 15 };
+      const rows = [...h.rel.entries()].map(([id, r]) => ({ id, r, lab: S.label(sim, h, id, r) }))
+        .sort((a, b) => (order[a.lab] - order[b.lab]) || (Math.abs(b.r.v) + b.r.love - Math.abs(a.r.v) - a.r.love))
+        .slice(0, 14);
+      if (!rows.length) return '<h4>관계</h4><p class="muted">아직 아는 사람이 없습니다.</p>';
+      const LCOL = { 배우자: '#ff7ab6', 연인: '#ff7ab6', '비밀 연인': '#d77aff', 썸: '#ff9ac1', 짝사랑: '#ffb3d1', 절친: '#8fd18f', 친구: '#a8d8a8', 원수: '#ff6b6b', 앙숙: '#ff9a7a' };
+      return `<h4>관계 (${h.rel.size})</h4><table class="mini">${rows.map(({ id, r, lab }) => {
+        const vcol = r.v >= 0 ? '#8fd18f' : '#ff8a80';
+        return `<tr><td>${this.personLink({ id, name: r.name })} <span class="chip" style="color:${LCOL[lab] || '#cfd6e0'}">${lab}</span></td>
+          <td><span style="color:${vcol}">${r.v >= 0 ? '+' : ''}${Math.round(r.v)}</span>${r.love >= 10 ? ` <span style="color:#ff7ab6">♥${Math.round(r.love)}</span>` : ''}</td></tr>`;
+      }).join('')}</table>`;
     }
 
     renderDead(r) {
@@ -149,6 +183,7 @@
           <span class="k">인구</span><span>${t.members.length}명 (최대 ${t.peak}명) · 집 ${t.houses.length}채</span>
           <span class="k">금고</span><span>금화 ${Math.floor(t.treasury)}개</span>
           <span class="k">출생/사망</span><span>${t.births} / ${t.deaths}</span>
+          <span class="k">분위기</span><span>${(() => { const a = t.members.reduce((s, m) => s + m.happy, 0) / Math.max(1, t.members.length); return a >= 65 ? '활기참' : a >= 50 ? '평온함' : a >= 35 ? '침울함' : '험악함'; })()} · 부부 ${Math.floor(t.members.filter((m) => m.partner && m.partner.alive).length / 2)}쌍${t.lastFestival ? ` · 마지막 축제 ${Math.floor(t.lastFestival)}년` : ''}</span>
         </div>
         <h4>창고와 시장 가격</h4>
         <table class="mini">
@@ -184,6 +219,17 @@
       const tribes = sim.tribes.filter((t) => t.alive).sort((a, b) => b.members.length - a.members.length);
       const loners = sim.humans.filter((h) => h.alive && !h.tribe).length;
       const gold = sim.humans.reduce((s, h) => s + (h.alive ? h.gold : 0), 0) + tribes.reduce((s, t) => s + t.treasury, 0);
+      const couples = { married: 0, lovers: 0, preg: 0 };
+      let hs = 0, n = 0;
+      for (const h of sim.humans) {
+        if (!h.alive) continue;
+        if (h.partner && h.partner.alive) couples.married += 0.5;
+        if (h.lover && h.lover.alive) couples.lovers += 0.5;
+        if (h.pregnant) couples.preg++;
+        hs += h.happy; n++;
+      }
+      couples.married = Math.floor(couples.married); couples.lovers = Math.floor(couples.lovers);
+      const avgMood = n ? `${Math.round(hs / n)}` : '-';
       return `
         <h2>세상</h2>
         <p class="muted" style="margin:4px 0 10px">당신은 이 섬의 신입니다. 인간들은 스스로 살아가며 부족을 이루고, 거래하고, 싸웁니다. 왼쪽 권능으로 세상에 손을 대 보세요.</p>
@@ -194,6 +240,9 @@
           <span class="k">전쟁</span><span>${sim.stats.wars}번</span>
           <span class="k">돈</span><span>세상의 금화 ${Math.floor(gold)}개</span>
           <span class="k">떠돌이</span><span>${loners}명</span>
+          <span class="k">사랑</span><span>부부 ${couples.married}쌍 · 연인 ${couples.lovers}쌍 · 임신 ${couples.preg}명</span>
+          <span class="k">결혼식</span><span>${sim.stats.weddings || 0}번</span>
+          <span class="k">평균 기분</span><span>${avgMood}</span>
         </div>
         <h4>부족 (${tribes.length})</h4>
         ${tribes.length ? tribes.map((t) => `<div class="tribe-row" data-act="tribe" data-id="${t.id}"><span class="dot" style="background:${t.color}"></span><span class="n">${esc(t.name)}</span>${t.wars.size ? '<span class="war">전쟁</span>' : ''}<span class="muted">${t.members.length}명</span></div>`).join('') : '<p class="muted">아직 부족이 없습니다. 사람들이 모여 지내다 보면 부족이 생깁니다.</p>'}

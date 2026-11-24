@@ -77,7 +77,7 @@
 
     // 배고픈 사람에게 식량 팔기 (아이·가난한 사람은 형편이 되면 나눠준다)
     feed(sim, h) {
-      if (this.stock.food < 1) { h.happy -= 3; return false; }
+      if (this.stock.food < 1) return false;
       const p = Math.ceil(this.price('food'));
       const generous = this.chief && this.chief.has('너그러운');
       if (h.job === J.CHILD) {
@@ -224,6 +224,12 @@
 
       // 기근
       if (this.stock.food < 1 && this.members.length >= 6 && chance(0.4)) this.log(sim, `${this.name}에 기근이 들었습니다`);
+
+      // 축제: 넉넉하고 기분 좋은 해에는 모닥불 축제
+      const avgHappy = this.members.reduce((s, m) => s + m.happy, 0) / this.members.length;
+      if (this.members.length >= 6 && avgHappy > 55 && this.stock.food > this.members.length * 3 && sim.year - (this.lastFestival || -99) >= 3 && chance(0.45)) {
+        G.Social.festival(sim, this);
+      }
 
       // 직업 재조정 (일부만)
       for (const m of this.members) {
