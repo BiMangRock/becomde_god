@@ -2,7 +2,7 @@
 (function () {
   const G = globalThis.G;
   const $ = (id) => document.getElementById(id);
-  const BRUSH = { inspect: 0, create: 0.6, rain: 7, bless: 5, lightning: 1.2, meteor: 4, cupid: 0, fertility: 5, discord: 5, raise: 2.6, lower: 2.6 };
+  const BRUSH = { inspect: 0, create: 0.6, rain: 7, bless: 5, lightning: 1.2, meteor: 4, cupid: 0, heal: 5, fertility: 5, discord: 5, raise: 2.6, lower: 2.6 };
 
   const app = {
     sim: null, renderer: null, ui: null,
@@ -68,7 +68,7 @@
       if (!h.adult) return app.toast('어른만 고를 수 있습니다');
       R.cupidFirst = h;
       const p = (h.partner && h.partner.alive && h.partner) || (h.lover && h.lover.alive && h.lover);
-      app.toast(`${h.name} 선택됨${p ? ` (이미 ${p.name}와(과) 짝이 있어요)` : ''} · 이제 상대를 누르세요`);
+      app.toast(`${h.name} 선택됨${p ? ` (이미 ${G.josa(p.name, "과/와")} 짝이 있어요)` : ''} · 이제 상대를 누르세요`);
       return;
     }
     const a = R.cupidFirst;

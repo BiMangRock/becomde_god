@@ -1,7 +1,7 @@
 // 지형과 자원
 (function () {
   const G = globalThis.G;
-  const { clamp, lerp } = G;
+  const { clamp, lerp, rand } = G;
 
   const T = (G.T = { DEEP: 0, WATER: 1, SAND: 2, GRASS: 3, FOREST: 4, HILL: 5, MOUNTAIN: 6, SNOW: 7 });
   G.TILE_NAMES = ['깊은 바다', '얕은 바다', '모래사장', '초원', '숲', '언덕', '산', '설산'];
@@ -28,6 +28,8 @@
       this.wood = new Float32Array(n);
       this.ore = new Float32Array(n);
       this.fert = new Float32Array(n);
+      this.fish = new Float32Array(n);   // 물고기 (물 칸)
+      this.farm = new Uint8Array(n);     // 밭 (초원 칸)
       this.dirty = true;
       this.generate(seed);
     }
@@ -86,6 +88,8 @@
       this.wood[i] = t === T.FOREST ? 10 : 0;
       this.ore[i] = t === T.HILL ? 3 : t === T.MOUNTAIN ? 8 : 0;
       this.fert[i] = t === T.GRASS || t === T.FOREST ? 1 : 0;
+      this.fish[i] = t === T.WATER ? 5 : t === T.DEEP ? 3 : 0;
+      this.farm[i] = 0;
     }
 
     idx(x, y) { return y * this.w + x; }
@@ -106,6 +110,16 @@
       const n = this.w * this.h;
       for (let i = 0; i < n; i++) {
         const t = this.type[i];
+        if (t === T.WATER || t === T.DEEP) {
+          const cap = t === T.WATER ? 6 : 4;
+          if (this.fish[i] < cap) this.fish[i] += 0.012;
+          continue;
+        }
+        if (t === T.GRASS && this.farm[i]) {
+          // 밭: 빨리 자라고 많이 난다
+          if (this.food[i] < 9) this.food[i] = Math.min(9, this.food[i] + 0.06 * Math.max(1, this.fert[i]) * mult);
+          continue;
+        }
         if (t === T.GRASS) {
           const cap = 4 + 2 * this.fert[i];
           if (this.food[i] < cap) this.food[i] = Math.min(cap, this.food[i] + 0.02 * this.fert[i] * mult);
@@ -253,6 +267,57 @@
       return out;
     }
 
+    // 물고기가 있는 물가 찾기: 서 있을 땅 칸과 물 칸 번호를 돌려준다
+    findShore(x, y, r) {
+      let best = null, bd = 1e9;
+      for (let k = 0; k < 60; k++) {
+        const rr = r * Math.sqrt(Math.random()), a = Math.random() * Math.PI * 2;
+        const tx = Math.floor(x + Math.cos(a) * rr), ty = Math.floor(y + Math.sin(a) * rr);
+        if (!this.walkableTile(tx, ty)) continue;
+        for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+          const wx = tx + dx, wy = ty + dy;
+          if (!this.inb(wx, wy)) continue;
+          const wi = this.idx(wx, wy);
+          if (this.type[wi] > T.WATER || this.fish[wi] < 1) continue;
+          const d = Math.hypot(tx - x, ty - y) - this.fish[wi] * 0.3;
+          if (d < bd) { bd = d; best = { x: tx, y: ty, i: wi }; }
+        }
+      }
+      return best;
+    }
+
+    // 마을 근처 밭 (수확할 수 있는 것)
+    findFarm(cx, cy, r) {
+      let best = null, bs = -1e9;
+      const x0 = Math.floor(cx - r), x1 = Math.ceil(cx + r), y0 = Math.floor(cy - r), y1 = Math.ceil(cy + r);
+      for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
+        if (!this.inb(x, y)) continue;
+        const i = this.idx(x, y);
+        if (!this.farm[i] || this.food[i] < 3) continue;
+        const s = this.food[i] - Math.hypot(x - cx, y - cy) * 0.3 + Math.random();
+        if (s > bs) { bs = s; best = { x, y, i }; }
+      }
+      return best;
+    }
+    countFarms(cx, cy, r) {
+      let n = 0;
+      for (let y = Math.floor(cy - r); y <= cy + r; y++) for (let x = Math.floor(cx - r); x <= cx + r; x++) if (this.inb(x, y) && this.farm[this.idx(x, y)]) n++;
+      return n;
+    }
+    // 새 밭을 일굴 자리
+    findTillSpot(cx, cy, r, houses) {
+      for (let k = 0; k < 40; k++) {
+        const x = Math.floor(cx + rand(-r, r)), y = Math.floor(cy + rand(-r, r));
+        if (!this.inb(x, y)) continue;
+        const i = this.idx(x, y);
+        if (this.type[i] !== T.GRASS || this.farm[i]) continue;
+        if (Math.hypot(x + 0.5 - cx, y + 0.5 - cy) < 2) continue;
+        if (houses.some((h) => Math.hypot(h.x - x - 0.5, h.y - y - 0.5) < 1)) continue;
+        return { x, y, i };
+      }
+      return null;
+    }
+
     foodAround(cx, cy, r) {
       let s = 0;
       for (let y = Math.floor(cy - r); y <= cy + r; y++) for (let x = Math.floor(cx - r); x <= cx + r; x++) {
@@ -300,7 +365,10 @@
       for (let i = 0; i < n; i++) {
         const t = this.type[i];
         let r, g, b;
-        if (t === T.GRASS) {
+        if (t === T.GRASS && this.farm[i]) {
+          const k = clamp(this.food[i] / 9, 0, 1);
+          r = lerp(150, 150, k); g = lerp(112, 168, k); b = lerp(70, 60, k);
+        } else if (t === T.GRASS) {
           const k = clamp(this.food[i] / 5, 0, 1);
           r = lerp(184, 108, k); g = lerp(176, 174, k); b = lerp(96, 66, k);
         } else if (t === T.FOREST) {

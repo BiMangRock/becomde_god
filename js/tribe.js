@@ -8,11 +8,16 @@
   let NEXT_TRIBE = 1;
 
   class Tribe {
-    constructor(sim, cx, cy) {
+    constructor(sim, cx, cy, opts = {}) {
       this.id = NEXT_TRIBE++;
+      this.bandit = !!opts.bandit;
       this.name = G.makeTribeName(sim.usedTribeNames);
+      if (this.bandit) this.name = this.name.replace(/ 부족$/, ' 도적단');
       sim.usedTribeNames.add(this.name);
-      this.color = G.TRIBE_COLORS[(this.id - 1) % G.TRIBE_COLORS.length];
+      this.color = this.bandit ? G.pick(['#6e6e6e', '#5b4a4a', '#4f5560']) : G.TRIBE_COLORS[(this.id - 1) % G.TRIBE_COLORS.length];
+      this.tools = 0;        // 대장장이가 만든 도구
+      this.jail = null;      // 감옥 위치
+      this.farmCount = 0;
       this.cx = cx; this.cy = cy;
       this.members = [];
       this.chief = null;
@@ -52,6 +57,9 @@
     }
 
     adults() { return this.members.filter((m) => m.adult); }
+    get title() { return this.bandit ? '두목' : '족장'; }
+    toolBonus() { return Math.min(0.3, this.tools / Math.max(1, this.members.length) * 0.25); }
+    prisoners(sim) { return sim.humans.filter((h) => h.alive && h.jail && h.jail.tid === this.id); }
 
     // 수요(인구)와 공급(창고)으로 가격이 정해진다
     price(r) {
@@ -112,15 +120,26 @@
       const foodLow = this.stock.food < mem * 2;
       const foodHigh = this.stock.food > mem * 8;
       const woodHigh = this.stock.wood > mem * 2 + 30;
-      const want = {
-        [J.GATHER]: foodLow ? 0.55 : foodHigh ? 0.2 : 0.38,
-        [J.WOOD]: woodHigh ? 0.04 : 0.2,
-        [J.MINE]: this.hasOre ? 0.1 : 0,
-        [J.MERCHANT]: otherTribes && n >= 6 ? 0.1 : 0,
-        [J.PRIEST]: n >= 8 ? 0.06 : 0,
-        [J.WARRIOR]: this.wars.size ? 0.3 : n >= 8 ? 0.06 : 0,
+      const foodJob = foodLow ? 1.4 : foodHigh ? 0.55 : 1;
+      const want = this.bandit ? {
+        [J.WARRIOR]: 0.5, [J.HUNTER]: 0.2, [J.GATHER]: 0.2, [J.WOOD]: 0.1,
+      } : {
+        [J.GATHER]: 0.14 * foodJob,
+        [J.FARMER]: (n >= 4 ? 0.18 : 0.05) * foodJob,
+        [J.HUNTER]: (this.hasPrey ? 0.09 : 0) * foodJob,
+        [J.FISHER]: (this.hasWater ? 0.09 : 0) * foodJob,
+        [J.WOOD]: woodHigh ? 0.03 : 0.15,
+        [J.MINE]: this.hasOre ? 0.08 : 0,
+        [J.SMITH]: this.hasOre && n >= 8 ? 0.05 : 0,
+        [J.MERCHANT]: otherTribes && n >= 6 ? 0.08 : 0,
+        [J.PRIEST]: n >= 8 ? 0.05 : 0,
+        [J.HEALER]: n >= 8 ? 0.05 : 0,
+        [J.GUARD]: n >= 10 || (this.crimeHeat || 0) > 2 ? 0.05 + Math.min(0.1, (this.crimeHeat || 0) * 0.015) : 0,
+        [J.WARRIOR]: this.wars.size ? 0.3 : n >= 8 ? 0.05 : 0,
       };
-      const prefer = h.has('탐욕스러운') ? J.MERCHANT : h.has('신앙심 깊은') ? J.PRIEST : h.has('용감한') ? J.WARRIOR : null;
+      const prefer = h.has('탐욕스러운') ? J.MERCHANT : h.has('신앙심 깊은') ? J.PRIEST : h.has('다정한') ? J.HEALER
+        : (h.has('정직한') && h.has('용감한')) ? J.GUARD : h.has('용감한') ? (chance(0.5) ? J.WARRIOR : J.HUNTER)
+        : h.has('부지런한') ? J.FARMER : null;
       let job = null;
       if (prefer && want[prefer] * n - (cnt[prefer] || 0) > 0) job = prefer;
       if (!job) {
@@ -135,19 +154,20 @@
       if (old !== h.job) {
         h.log(sim, `${josa(h.job, '이/가')} 되었다`);
         if (h.job === J.MERCHANT && h.gold < 20 && this.treasury > 40) { this.treasury -= 20; h.gold += 20; }
+        if (chance(0.5)) G.Mind.findMentor(sim, h);
       }
     }
 
     electChief(sim) {
-      const cands = this.adults().filter((m) => m.age < 70);
+      const cands = this.adults().filter((m) => m.age < 70 && !m.jail && !m.wanted && (m.notoriety || 0) < 15);
       if (!cands.length) { this.chief = null; return; }
       const score = (m) => m.age * 0.5 + m.gold / 10 + m.kills * 3 + (m.has('야심찬') ? 10 : 0) + (m.has('용감한') ? 4 : 0);
       cands.sort((a, b) => score(b) - score(a));
       const c = cands[0];
       this.chief = c;
       c.job = J.CHIEF;
-      c.log(sim, `${this.name}의 족장이 되었다`);
-      this.log(sim, `${josa(c.name, '이/가')} ${this.name}의 새 족장이 되었습니다`);
+      c.log(sim, `${this.name}의 ${this.title}이 되었다`);
+      this.log(sim, `${josa(c.name, '이/가')} ${this.name}의 새 ${this.title}이 되었습니다`);
     }
 
     buildHouse(sim) {
@@ -206,8 +226,33 @@
       // 식량은 해마다 조금씩 상한다
       this.stock.food = Math.floor(this.stock.food * 0.85);
 
-      // 광석으로 금화 만들기
-      if (this.stock.ore >= 4) {
+      // 도구는 닳는다
+      this.tools = Math.floor(this.tools * 0.9);
+      // 감옥: 사람이 많거나 범죄가 잦으면 짓는다
+      if (!this.jail && !this.bandit && this.stock.wood >= 20 && (this.members.length >= 16 || (this.members.length >= 8 && (this.crimeHeat || 0) >= 2))) {
+        for (let k = 0; k < 20; k++) {
+          const a = Math.random() * Math.PI * 2, r = rand(3, 5);
+          const x = this.cx + Math.cos(a) * r, y = this.cy + Math.sin(a) * r;
+          if (!sim.world.walkable(x, y) || this.houses.some((hs) => Math.hypot(hs.x - x, hs.y - y) < 1.4)) continue;
+          this.jail = { x, y };
+          this.stock.wood -= 20;
+          this.log(sim, `${josa(this.name, '이/가')} 감옥을 지었습니다`);
+          break;
+        }
+      }
+      this.crimeHeat = Math.max(0, (this.crimeHeat || 0) * 0.6);
+      this.farmCount = sim.world.countFarms(this.cx, this.cy, 8);
+      this.hasWater = !!sim.world.findShore(this.cx, this.cy, 18);
+      this.hasPrey = sim.animals.some((a) => a.alive && G.dist(a.x, a.y, this.cx, this.cy) < 26);
+      // 도적단은 가장 가까운 마을을 노린다
+      if (this.bandit && !this.wars.size && this.members.length >= 3) {
+        const target = sim.tribes.filter((o) => o.alive && !o.bandit && o.members.length).sort((a, b) => G.dist(a.cx, a.cy, this.cx, this.cy) - G.dist(b.cx, b.cy, this.cx, this.cy))[0];
+        if (target && G.dist(target.cx, target.cy, this.cx, this.cy) < 60 && chance(0.5)) sim.declareWar(this, target);
+      }
+
+      // 광석으로 금화 만들기 (대장장이가 있으면 도구용으로 남긴다)
+      const hasSmith = this.members.some((m) => m.job === J.SMITH);
+      if (this.stock.ore >= (hasSmith ? 12 : 4)) {
         const m = Math.floor(this.stock.ore * 0.5);
         this.stock.ore -= m; this.treasury += m * 4;
       }
@@ -273,7 +318,9 @@
           this.cx = site.x; this.cy = site.y;
           this.stock.wood += this.houses.length * 3; this.houses = []; this.temple = false;
           this.log(sim, `${josa(this.name, '이/가')} 굶주림을 피해 새 땅으로 이주했습니다`);
+          if (this.jail) { this.stock.wood += 10; G.Crime.jailDestroyed(sim, this); }
           for (const m of this.members) {
+            if (m.jail) continue;
             m.goTo(sim, site.x + rand(-2, 2), site.y + rand(-2, 2), { kind: 'wander' });
             if (m.adult) m.log(sim, '부족과 함께 새 땅으로 이주했다');
           }
@@ -281,7 +328,7 @@
       }
 
       // 분열
-      if (this.members.length > 32 && chance(0.35)) sim.splitTribe(this);
+      if (!this.bandit && this.members.length > 32 && chance(0.35)) sim.splitTribe(this);
     }
   }
 

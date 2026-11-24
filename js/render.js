@@ -4,7 +4,7 @@
   const T = G.T;
   const J = G.JOB;
 
-  const EMOTE_COLORS = { '♥': '#ff6b9a', '!': '#ff5050', '#': '#ff7b3d', '♪': '#ffe27a', '…': '#9fc3ff', '✦': '#ffe27a' };
+  const EMOTE_COLORS = { '♥': '#ff6b9a', '!': '#ff5050', '#': '#ff7b3d', '♪': '#ffe27a', '…': '#9fc3ff', '✦': '#ffe27a', '✚': '#7fe0a8', '➶': '#e0b070', '?': '#c9a0ff', '⚒': '#c8c8c8', '~': '#8fd0ff' };
 
   class Renderer {
     constructor(canvas, sim) {
@@ -79,6 +79,7 @@
       if (sim.drought) { ctx.fillStyle = 'rgba(220,150,60,0.10)'; ctx.fillRect(0, 0, this.vw, this.vh); }
 
       this.drawTribes();
+      this.drawAnimals();
       this.drawHumans();
       this.drawEffects();
       this.drawTribeLabels();
@@ -116,6 +117,17 @@
             ctx.fillRect(sx + s * 0.3, sy + s * 0.55, s * 0.08, s * 0.08);
             ctx.fillRect(sx + s * 0.6, sy + s * 0.35, s * 0.06, s * 0.06);
           }
+          if (t === T.GRASS && w.farm[i]) {
+            ctx.strokeStyle = 'rgba(80,55,30,0.55)'; ctx.lineWidth = Math.max(1, s * 0.05);
+            ctx.beginPath();
+            for (let k = 1; k <= 3; k++) { ctx.moveTo(sx + s * 0.1, sy + s * k / 4); ctx.lineTo(sx + s * 0.9, sy + s * k / 4); }
+            ctx.stroke();
+            if (s >= 16 && w.food[i] >= 2) {
+              ctx.fillStyle = w.food[i] > 6 ? '#d9c34a' : '#5aa83a';
+              for (let k = 1; k <= 3; k++) for (let m = 0; m < 4; m++) ctx.fillRect(sx + s * (0.15 + m * 0.22), sy + s * k / 4 - s * 0.1, s * 0.05, s * 0.1);
+            }
+            continue;
+          }
           if (t === T.GRASS && w.food[i] >= 4.5 && s >= 22 && (hsh & 7) === 1) {
             ctx.fillStyle = '#3d7a2c';
             ctx.beginPath(); ctx.arc(sx + s * 0.5, sy + s * 0.6, s * 0.14, 0, 7); ctx.fill();
@@ -146,6 +158,11 @@
         for (const h of t.houses) {
           const [hx, hy] = this.toScreen(h.x, h.y);
           this.drawHouse(hx, hy, s, t.color);
+        }
+        // 감옥
+        if (t.jail) {
+          const [jx, jy] = this.toScreen(t.jail.x, t.jail.y);
+          this.drawJail(jx, jy, s);
         }
         // 신전 / 모닥불
         if (t.temple) this.drawTemple(cx, cy - s * 0.2, s, t.color);
@@ -255,6 +272,11 @@
       if (h.job === J.PRIEST) body = '#f2f0e6';
       if (h.job === J.WARRIOR) body = '#7a2b25';
       if (h.job === J.MERCHANT) body = '#8a5a2b';
+      if (h.job === J.HEALER) body = '#e8f3ec';
+      if (h.job === J.GUARD) body = '#4b5d73';
+      if (h.job === J.SMITH) body = '#5a4636';
+      if (h.outlaw) body = '#3a3530';
+      if (h.jail) body = '#d8d2c0';
       ctx.fillStyle = body;
       const bodyTop = y - 13 * u, bodyH = h.job === J.PRIEST ? 10 * u : 7.5 * u;
       ctx.beginPath();
@@ -264,6 +286,11 @@
       if (h.job === J.WARRIOR || h.job === J.PRIEST || h.job === J.MERCHANT) {
         ctx.fillStyle = color; ctx.fillRect(x - 2.6 * u, bodyTop + 4 * u, 5.2 * u, 1.2 * u); // 부족 띠
       }
+      if (h.jail) {
+        ctx.fillStyle = '#555';
+        for (let k = 0; k < 3; k++) ctx.fillRect(x - 2.8 * u, bodyTop + (2 + k * 2) * u, 5.6 * u, 0.7 * u);
+      }
+      if (h.job === J.HEALER) { ctx.fillStyle = '#2fae5f'; ctx.fillRect(x - 0.4 * u, bodyTop + 2.2 * u, 0.8 * u, 2.6 * u); ctx.fillRect(x - 1.3 * u, bodyTop + 3.1 * u, 2.6 * u, 0.8 * u); }
       // 임신한 배
       if (h.pregnant) {
         const prog = 1 - h.pregnant / (G.CFG.TPY * 0.75);
@@ -303,6 +330,14 @@
         ctx.lineTo(hx, hy - 5 * u); ctx.lineTo(hx + 1.2 * u, hy - 3.4 * u); ctx.lineTo(hx + 2.4 * u, hy - 4.6 * u); ctx.lineTo(hx + 2.4 * u, hy - 2.4 * u);
         ctx.fill();
       }
+      if (h.job === J.GUARD) {
+        ctx.fillStyle = '#9aa3ad';
+        ctx.beginPath(); ctx.arc(hx, hy - 0.6 * u, 3 * u, Math.PI, Math.PI * 2); ctx.fill();
+        ctx.fillRect(hx - 3.2 * u, hy - 0.8 * u, 6.4 * u, 0.7 * u);
+      }
+      if (h.outlaw && s >= 14) { ctx.fillStyle = '#1b1b1b'; ctx.fillRect(hx - 2.8 * u, hy - 0.9 * u, 5.6 * u, 1.3 * u); }
+      // 도구
+      this.drawTool(h, x, y, bodyTop, u, d);
       // 무기와 짐
       if (h.job === J.WARRIOR) {
         ctx.strokeStyle = '#ccc'; ctx.lineWidth = Math.max(1, 0.8 * u);
@@ -328,6 +363,10 @@
         ctx.fillRect(x - tw / 2 - 3, top - 13, tw + 6, 14);
         ctx.fillStyle = '#fff';
         ctx.fillText(label, x, top - 2);
+      }
+      if (h.wanted && s >= 12) {
+        ctx.font = 'bold 10px sans-serif'; ctx.textAlign = 'center';
+        ctx.fillStyle = '#ff4d4d'; ctx.fillText('수배', x, top - (s >= 30 ? 30 : 14));
       }
       if (h.emoteT > 0 && s >= 14) {
         const ey = top - (s >= 30 ? 18 : 4);
@@ -451,12 +490,111 @@
             ctx.beginPath(); ctx.arc(x, y, s * (2 + p * 6), 0, Math.PI * 2); ctx.fill();
             break;
           }
+          case 'escape': {
+            ctx.strokeStyle = `rgba(255,160,60,${1 - p})`; ctx.lineWidth = 2;
+            for (let k = 0; k < 10; k++) {
+              const a = k * 0.628, r0 = s * 0.5, r1 = s * (0.8 + p * 2);
+              ctx.beginPath(); ctx.moveTo(x + Math.cos(a) * r0, y + Math.sin(a) * r0); ctx.lineTo(x + Math.cos(a) * r1, y + Math.sin(a) * r1); ctx.stroke();
+            }
+            break;
+          }
           case 'soul': {
             if (s < 8) break;
             ctx.fillStyle = `rgba(230,240,255,${0.7 * (1 - p)})`;
             ctx.beginPath(); ctx.arc(x, y - s * 0.6 - p * s * 1.5, s * 0.12, 0, Math.PI * 2); ctx.fill();
             break;
           }
+        }
+      }
+    }
+
+    drawJail(x, y, s) {
+      const ctx = this.ctx;
+      const u = Math.max(s, 6);
+      ctx.fillStyle = '#6f6a62';
+      ctx.fillRect(x - u * 0.6, y - u * 0.75, u * 1.2, u * 0.9);
+      ctx.fillStyle = '#4c4842';
+      ctx.fillRect(x - u * 0.7, y - u * 0.85, u * 1.4, u * 0.14);
+      if (s >= 10) {
+        ctx.strokeStyle = '#2a2724'; ctx.lineWidth = Math.max(1, u * 0.05);
+        ctx.beginPath();
+        for (let k = -2; k <= 2; k++) { ctx.moveTo(x + k * u * 0.2, y - u * 0.6); ctx.lineTo(x + k * u * 0.2, y + u * 0.1); }
+        ctx.stroke();
+      }
+    }
+
+    drawTool(h, x, y, bodyTop, u, d) {
+      const ctx = this.ctx;
+      ctx.lineCap = 'round';
+      const hand = { x: x + d * 3.4 * u, y: bodyTop + 6.5 * u };
+      switch (h.job) {
+        case J.HUNTER:
+          ctx.strokeStyle = '#7a4f28'; ctx.lineWidth = Math.max(1, 0.8 * u);
+          ctx.beginPath(); ctx.arc(x - d * 2.6 * u, bodyTop + 4 * u, 4 * u, -1.2, 1.2); ctx.stroke();
+          break;
+        case J.FISHER:
+          if (h.state === 'gather') {
+            ctx.strokeStyle = '#8a6a40'; ctx.lineWidth = Math.max(1, 0.6 * u);
+            ctx.beginPath(); ctx.moveTo(hand.x, hand.y); ctx.lineTo(hand.x + d * 9 * u, hand.y - 9 * u); ctx.stroke();
+            ctx.strokeStyle = 'rgba(230,230,230,0.7)'; ctx.lineWidth = 1;
+            ctx.beginPath(); ctx.moveTo(hand.x + d * 9 * u, hand.y - 9 * u); ctx.lineTo(hand.x + d * 10 * u, hand.y + 6 * u); ctx.stroke();
+          }
+          break;
+        case J.FARMER:
+          ctx.strokeStyle = '#7a4f28'; ctx.lineWidth = Math.max(1, 0.7 * u);
+          ctx.beginPath(); ctx.moveTo(hand.x, hand.y - 7 * u); ctx.lineTo(hand.x, hand.y + 2 * u); ctx.stroke();
+          ctx.fillStyle = '#aaa'; ctx.fillRect(hand.x - (d > 0 ? 0 : 2.2 * u), hand.y + 1.5 * u, 2.2 * u, 0.9 * u);
+          break;
+        case J.SMITH: {
+          const up = h.state === 'busy' && Math.sin(this.frame * 0.4) > 0;
+          ctx.strokeStyle = '#7a4f28'; ctx.lineWidth = Math.max(1, 0.7 * u);
+          ctx.beginPath(); ctx.moveTo(hand.x, hand.y); ctx.lineTo(hand.x + d * 2 * u, hand.y - (up ? 5 : 2) * u); ctx.stroke();
+          ctx.fillStyle = '#888'; ctx.fillRect(hand.x + d * 2 * u - 1.2 * u, hand.y - (up ? 6 : 3) * u, 2.4 * u, 1.4 * u);
+          break;
+        }
+        case J.GUARD:
+          ctx.strokeStyle = '#999'; ctx.lineWidth = Math.max(1, 0.7 * u);
+          ctx.beginPath(); ctx.moveTo(x + d * 3.6 * u, y - 1 * u); ctx.lineTo(x + d * 3.6 * u, y - 16 * u); ctx.stroke();
+          break;
+      }
+    }
+
+    drawAnimals() {
+      const ctx = this.ctx, s = this.cam.s, v = this.view;
+      for (const a of this.sim.animals) {
+        if (!a.alive || a.x < v.x0 - 1 || a.x > v.x1 + 1 || a.y < v.y0 - 1 || a.y > v.y1 + 1) continue;
+        const [x, y] = this.toScreen(a.x, a.y);
+        const K = G.Wild.KINDS[a.kind];
+        if (s < 8) { ctx.fillStyle = K.color; ctx.fillRect(x - 1.5, y - 1.5, 3, 3); continue; }
+        const u = s * 0.05 * (a.kind === 'deer' ? 1.1 : 1), d = a.dir;
+        const sw = a.moving ? Math.sin(a.walk * 3) * 1.6 * u : 0;
+        ctx.fillStyle = 'rgba(0,0,0,0.2)';
+        ctx.beginPath(); ctx.ellipse(x, y, 5 * u, 1.4 * u, 0, 0, Math.PI * 2); ctx.fill();
+        ctx.strokeStyle = K.color; ctx.lineWidth = Math.max(1, 1.1 * u);
+        const legH = a.kind === 'deer' ? 5 : 3.2;
+        ctx.beginPath();
+        ctx.moveTo(x - 3 * u, y - legH * u); ctx.lineTo(x - 3 * u + sw, y);
+        ctx.moveTo(x + 3 * u, y - legH * u); ctx.lineTo(x + 3 * u - sw, y);
+        ctx.stroke();
+        ctx.fillStyle = K.color;
+        ctx.beginPath(); ctx.ellipse(x, y - (legH + 1.8) * u, 4.6 * u, 2.4 * u, 0, 0, Math.PI * 2); ctx.fill();
+        const hx = x + d * 4.8 * u, hy = y - (legH + (a.kind === 'boar' ? 1.5 : 3.6)) * u;
+        ctx.beginPath(); ctx.ellipse(hx, hy, 2 * u, 1.6 * u, 0, 0, Math.PI * 2); ctx.fill();
+        if (a.kind === 'deer') {
+          ctx.strokeStyle = '#d9c29a'; ctx.lineWidth = Math.max(1, 0.5 * u);
+          ctx.beginPath(); ctx.moveTo(hx, hy - 1 * u); ctx.lineTo(hx - d * 1 * u, hy - 4 * u); ctx.moveTo(hx - d * 0.6 * u, hy - 2.6 * u); ctx.lineTo(hx + d * 1 * u, hy - 3.8 * u); ctx.stroke();
+          ctx.fillStyle = '#f3e6cf'; ctx.fillRect(x - d * 4.6 * u, y - (legH + 2.6) * u, 1 * u, 1 * u);
+        } else if (a.kind === 'boar') {
+          ctx.fillStyle = '#eee'; ctx.fillRect(hx + d * 1.4 * u, hy + 0.2 * u, 0.6 * u, 1.2 * u);
+        } else {
+          ctx.beginPath(); ctx.moveTo(hx - 1 * u, hy - 1 * u); ctx.lineTo(hx - 0.4 * u, hy - 3 * u); ctx.lineTo(hx + 0.4 * u, hy - 1 * u); ctx.fill();
+          ctx.strokeStyle = K.color; ctx.lineWidth = Math.max(1, 1 * u);
+          ctx.beginPath(); ctx.moveTo(x - d * 4.4 * u, y - (legH + 2) * u); ctx.lineTo(x - d * 7 * u, y - (legH + 3.5) * u); ctx.stroke();
+          if (a.target) { ctx.fillStyle = '#ff5050'; ctx.fillRect(hx + d * 0.6 * u, hy - 0.5 * u, 0.7 * u, 0.7 * u); }
+        }
+        if (a.hp < K.hp && s >= 14) {
+          ctx.fillStyle = '#300'; ctx.fillRect(x - 3 * u, y + 1.2 * u, 6 * u, 1 * u);
+          ctx.fillStyle = '#e44'; ctx.fillRect(x - 3 * u, y + 1.2 * u, 6 * u * Math.max(0, a.hp) / K.hp, 1 * u);
         }
       }
     }

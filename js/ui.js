@@ -11,6 +11,8 @@
       case 'pray': return '기도하는 중';
       case 'rest': return h.emote === '♥' && h.emoteT > 0 ? '연인과 시간을 보내는 중' : '쉬는 중';
       case 'party': return '축제에서 춤추는 중';
+      case 'jailed': return `감옥에 갇혀 있음 (남은 형기 ${Math.max(0, h.jail.until - sim.year).toFixed(1)}년)`;
+      case 'busy': return h.busy && h.busy.kind === 'till' ? '밭을 일구는 중' : '도구를 만드는 중';
       case 'fight': return `${h.target ? h.target.name + '와(과) ' : ''}싸우는 중`;
       case 'goto':
         if (k === 'gather') return `${G.RES_NAME[h.task.res]} 모으러 가는 중`;
@@ -22,6 +24,11 @@
         if (k === 'date') { const o = sim.byId.get(h.task.with); return `${o ? o.name + '와(과) ' : ''}${h.task.place}로 데이트하러 가는 중`; }
         if (k === 'visit') { const o = sim.byId.get(h.task.with); return `${o ? '친구 ' + o.name + '을(를) ' : '친구를 '}만나러 가는 중`; }
         if (k === 'party') return '축제에 가는 중';
+        if (k === 'hunt') { const a = sim.animals.find((x) => x.id === h.task.aid); return `${a ? G.Wild.KINDS[a.kind].name : '사냥감'}을(를) 쫓는 중`; }
+        if (k === 'arrest') { const o = sim.byId.get(h.task.id); return `수배자 ${o ? o.name : ''}을(를) 쫓는 중`; }
+        if (k === 'treat') { const o = sim.byId.get(h.task.pid); return `${o ? o.name : '환자'}을(를) 치료하러 가는 중`; }
+        if (k === 'till') return '밭을 일구러 가는 중';
+        if (k === 'forge') return '대장간으로 가는 중';
         return '걷는 중';
       default: return '생각하는 중';
     }
@@ -98,11 +105,14 @@
       return `
         <h2>${esc(h.name)} <span class="muted">${h.gender === 'M' ? '남' : '여'} · ${Math.floor(h.age)}세</span></h2>
         <div>${t ? `<span class="chip link" data-act="tribe" data-id="${t.id}"><span class="dot" style="background:${t.color}"></span> ${esc(t.name)}</span>` : '<span class="chip">부족 없음</span>'}
-          <span class="chip">${esc(h.job)}</span>${h.traits.map((x) => `<span class="chip">${esc(x)}</span>`).join('')}</div>
+          <span class="chip" title="${esc(G.JOB_DESC[h.job] || '')}">${esc(h.job)}</span>${h.traits.map((x) => `<span class="chip" title="${esc(G.TRAIT_DESC[x] || '')}">${esc(x)}</span>`).join('')}
+          ${h.jail ? '<span class="chip" style="color:#ffb070">수감 중</span>' : ''}${h.wanted ? '<span class="chip" style="color:#ff6b6b">수배 중</span>' : ''}${h.outlaw ? '<span class="chip" style="color:#bbb">무법자</span>' : ''}</div>
         <p class="muted" style="margin:8px 0">지금 ${STATE_TEXT(h, sim)}${h.pregnant ? ` · <span style="color:#ff9ac1">임신 ${Math.max(1, Math.round((1 - h.pregnant / (G.CFG.TPY * 0.75)) * 9))}개월</span>` : ''}</p>
         ${this.bars(h)}
         ${this.moodBlock(h)}
+        ${this.mindBlock(h)}
         ${this.relBlock(h)}
+        ${this.crimeBlock(h)}
         <h4>재산과 가족</h4>
         <div class="kv">
           <span class="k">금화</span><span>${Math.floor(h.gold)}개${h.carry ? ` · ${G.RES_NAME[h.carry] || ''} ${h.carryAmt}개 운반 중` : ''}</span>
@@ -132,18 +142,51 @@
       return `<h4>기분 · <span style="color:${lab.c}">${lab.t}</span> (${Math.round(h.happy)})</h4><div>${chips || '<span class="muted">특별한 일 없음</span>'}</div>`;
     }
 
+    mindBlock(h) {
+      const row = (k, v, col) => `<span>${k}</span><div class="bar"><i style="width:${Math.max(0, Math.min(100, v))}%;background:${col}"></i></div><span>${Math.round(v)}</span>`;
+      let cond = '<span class="muted">건강함</span>';
+      if (h.mind) {
+        const C = G.Mind.CONDITIONS[h.mind.c];
+        cond = `<span style="color:${C.color}">${h.mind.c}</span> <span class="muted">· ${C.desc} · ${Math.floor(this.app.sim.year - h.mind.since)}년째</span>`;
+      }
+      return `<h4>마음</h4><div class="bars">${row('스트레스', h.stress || 0, '#e87a5d')}${row('외로움', h.social || 0, '#9a8fd9')}${h.mind ? row('병의 깊이', h.mind.sev, G.Mind.CONDITIONS[h.mind.c].color) : ''}</div><p style="margin:6px 0 0;font-size:12.5px">정신 건강: ${cond}</p>`;
+    }
+
+    crimeBlock(h) {
+      if (!h.crimes || (!h.crimes.length && !h.notoriety && !h.convictions)) return '';
+      const list = h.crimes.slice().reverse().map((c) =>
+        `<li><span class="yr">${c.y}년</span>${esc(c.type)}${c.victim ? ` (${esc(c.victim)})` : ''} ${c.known ? (c.punished ? '<span class="muted">· 처벌받음</span>' : '<span style="color:#ff8a80">· 드러남</span>') : '<span style="color:#c9a0ff">· 아무도 모름</span>'}</li>`).join('');
+      return `<h4>죄와 벌</h4>
+        <div class="kv"><span class="k">악명</span><span>${Math.round(h.notoriety)}</span><span class="k">유죄 판결</span><span>${h.convictions}번</span>${h.murders ? `<span class="k">살인</span><span style="color:#ff6b6b">${h.murders}명</span>` : ''}</div>
+        <ul class="story">${list}</ul>`;
+    }
+
     relBlock(h) {
       const S = G.Social, sim = this.app.sim;
-      const order = { 배우자: 0, 연인: 1, '비밀 연인': 2, 썸: 3, 짝사랑: 4, 부모: 5, 자녀: 6, 절친: 7, 원수: 8, 친구: 9, 앙숙: 10, '전 배우자': 11, '옛 연인': 12, '먼저 간 배우자': 13, '그리운 사람': 14, '아는 사이': 15 };
+      const ORDER = ['배우자', '연인', '비밀 연인', '썸', '짝사랑', '부모', '자녀', '형제자매', '원수', '연적', '스승', '제자', '은인', '절친', '존경하는 사람', '두려운 사람', '라이벌', '친구', '빚진 사람', '돈 빌려준 사람', '앙숙', '전 배우자', '옛 연인', '먼저 간 배우자', '그리운 사람', '아는 사이'];
+      const order = Object.fromEntries(ORDER.map((k, i) => [k, i]));
       const rows = [...h.rel.entries()].map(([id, r]) => ({ id, r, lab: S.label(sim, h, id, r) }))
         .sort((a, b) => (order[a.lab] - order[b.lab]) || (Math.abs(b.r.v) + b.r.love - Math.abs(a.r.v) - a.r.love))
         .slice(0, 14);
       if (!rows.length) return '<h4>관계</h4><p class="muted">아직 아는 사람이 없습니다.</p>';
-      const LCOL = { 배우자: '#ff7ab6', 연인: '#ff7ab6', '비밀 연인': '#d77aff', 썸: '#ff9ac1', 짝사랑: '#ffb3d1', 절친: '#8fd18f', 친구: '#a8d8a8', 원수: '#ff6b6b', 앙숙: '#ff9a7a' };
-      return `<h4>관계 (${h.rel.size})</h4><table class="mini">${rows.map(({ id, r, lab }) => {
+      const LCOL = { 배우자: '#ff7ab6', 연인: '#ff7ab6', '비밀 연인': '#d77aff', 썸: '#ff9ac1', 짝사랑: '#ffb3d1', 절친: '#8fd18f', 친구: '#a8d8a8', 원수: '#ff6b6b', 앙숙: '#ff9a7a',
+        연적: '#ff8fb0', 은인: '#7fe0a8', 스승: '#f5d76e', 제자: '#f5d76e', '존경하는 사람': '#f5d76e', '두려운 사람': '#c9a0ff', 라이벌: '#ffb070', 형제자매: '#9fc3ff', '빚진 사람': '#d9b26a', '돈 빌려준 사람': '#d9b26a' };
+      // 눈에 띄는 수치만 작은 배지로
+      const badges = (r) => {
+        const b = [];
+        if (Math.abs(r.trust || 0) >= 30) b.push(`<span style="color:${r.trust > 0 ? '#7fe0a8' : '#ff8a80'}">신뢰${r.trust > 0 ? '+' : ''}${Math.round(r.trust)}</span>`);
+        if ((r.respect || 0) >= 40) b.push(`<span style="color:#f5d76e">존경${Math.round(r.respect)}</span>`);
+        if ((r.fear || 0) >= 30) b.push(`<span style="color:#c9a0ff">두려움${Math.round(r.fear)}</span>`);
+        if ((r.grudge || 0) >= 20) b.push(`<span style="color:#ff6b6b">원한${Math.round(r.grudge)}</span>`);
+        if ((r.jealousy || 0) >= 20) b.push(`<span style="color:#ffb070">질투${Math.round(r.jealousy)}</span>`);
+        if (r.owe) b.push(`<span style="color:#d9b26a">빚 ${r.owe}</span>`);
+        if (r.lent) b.push(`<span style="color:#d9b26a">빌려줌 ${r.lent}</span>`);
+        return b.length ? `<div style="font-size:11px;margin-top:1px">${b.join(' · ')}</div>` : '';
+      };
+      return `<h4>관계 (${h.rel.size}) <span class="muted" style="font-weight:400">호감 · ♥사랑</span></h4><table class="mini">${rows.map(({ id, r, lab }) => {
         const vcol = r.v >= 0 ? '#8fd18f' : '#ff8a80';
-        return `<tr><td>${this.personLink({ id, name: r.name })} <span class="chip" style="color:${LCOL[lab] || '#cfd6e0'}">${lab}</span></td>
-          <td><span style="color:${vcol}">${r.v >= 0 ? '+' : ''}${Math.round(r.v)}</span>${r.love >= 10 ? ` <span style="color:#ff7ab6">♥${Math.round(r.love)}</span>` : ''}</td></tr>`;
+        return `<tr><td>${this.personLink({ id, name: r.name })} <span class="chip" style="color:${LCOL[lab] || '#cfd6e0'}">${lab}</span>${badges(r)}</td>
+          <td style="vertical-align:top"><span style="color:${vcol}">${r.v >= 0 ? '+' : ''}${Math.round(r.v)}</span>${r.love >= 10 ? ` <span style="color:#ff7ab6">♥${Math.round(r.love)}</span>` : ''}</td></tr>`;
       }).join('')}</table>`;
     }
 
@@ -156,6 +199,10 @@
           <span class="k">부모</span><span>${r.parents.length ? r.parents.map((p) => this.personLink(p)).join(', ') : '<span class="muted">알 수 없음</span>'}</span>
           <span class="k">자녀</span><span>${r.children.length}명</span>
           ${r.kills ? `<span class="k">전공</span><span>${r.kills}명</span>` : ''}
+          ${r.murders ? `<span class="k">살인</span><span style="color:#ff6b6b">${r.murders}명</span>` : ''}
+          ${r.crimes && r.crimes.length ? `<span class="k">죄</span><span>${esc(r.crimes.join(', '))}</span>` : ''}
+          ${r.mind ? `<span class="k">마음의 병</span><span>${esc(r.mind)}</span>` : ''}
+          ${r.outlaw ? '<span class="k">신분</span><span>무법자로 죽음</span>' : ''}
         </div>
         <div class="row-btns"><button data-act="archive">기록관으로</button><button data-act="close">닫기</button></div>
         <h4>남겨진 이야기 (최근 ${r.story.length}개)</h4>
@@ -183,8 +230,15 @@
           <span class="k">인구</span><span>${t.members.length}명 (최대 ${t.peak}명) · 집 ${t.houses.length}채</span>
           <span class="k">금고</span><span>금화 ${Math.floor(t.treasury)}개</span>
           <span class="k">출생/사망</span><span>${t.births} / ${t.deaths}</span>
+          ${t.bandit ? '<span class="k">정체</span><span style="color:#ff8a80">무법자들의 도적단</span>' : ''}
+          <span class="k">도구</span><span>${t.tools}개 (일 효율 +${Math.round(t.toolBonus() * 100)}%) · 밭 ${t.farmCount}칸</span>
+          <span class="k">치안</span><span>경비병 ${t.members.filter((m) => m.job === G.JOB.GUARD).length}명 · ${t.jail ? '감옥 있음' : '감옥 없음'}${t.crimeHeat > 1 ? ' · <span style="color:#ff8a80">범죄 잦음</span>' : ''}</span>
           <span class="k">분위기</span><span>${(() => { const a = t.members.reduce((s, m) => s + m.happy, 0) / Math.max(1, t.members.length); return a >= 65 ? '활기참' : a >= 50 ? '평온함' : a >= 35 ? '침울함' : '험악함'; })()} · 부부 ${Math.floor(t.members.filter((m) => m.partner && m.partner.alive).length / 2)}쌍${t.lastFestival ? ` · 마지막 축제 ${Math.floor(t.lastFestival)}년` : ''}</span>
         </div>
+        ${(() => {
+          const ps = t.prisoners(sim);
+          return ps.length ? `<h4>수감자 (${ps.length})</h4><table class="mini">${ps.map((p) => `<tr><td>${this.personLink(p)}</td><td>${esc(p.crimes.filter((c) => c.punished).slice(-2).map((c) => c.type).join(', '))} · 남은 ${Math.max(0, p.jail.until - sim.year).toFixed(1)}년</td></tr>`).join('')}</table>` : '';
+        })()}
         <h4>창고와 시장 가격</h4>
         <table class="mini">
           ${['food', 'wood', 'ore'].map((r) => `<tr><td>${G.RES_NAME[r]} ${Math.floor(t.stock[r])}개</td><td>개당 금화 ${t.price(r).toFixed(1)}</td></tr>`).join('')}
@@ -243,6 +297,11 @@
           <span class="k">사랑</span><span>부부 ${couples.married}쌍 · 연인 ${couples.lovers}쌍 · 임신 ${couples.preg}명</span>
           <span class="k">결혼식</span><span>${sim.stats.weddings || 0}번</span>
           <span class="k">평균 기분</span><span>${avgMood}</span>
+          <span class="k">범죄</span><span>절도 ${sim.stats.thefts || 0} · 폭행 ${sim.stats.assaults || 0} · 살인 ${sim.stats.murders || 0} · 미제 ${sim.unsolved.length}</span>
+          <span class="k">사법</span><span>체포 ${sim.stats.arrests || 0} · 수감 중 ${sim.humans.filter((h) => h.jail).length} · 탈옥 ${sim.stats.escapes || 0} · 추방 ${sim.stats.exiles || 0}</span>
+          <span class="k">무법자</span><span>${sim.humans.filter((h) => h.alive && h.outlaw).length}명 · 도적단 ${tribes.filter((t) => t.bandit).length}개</span>
+          <span class="k">마음의 병</span><span>${sim.humans.filter((h) => h.mind).length}명 앓는 중 · 회복 ${sim.stats.recovered || 0}명</span>
+          <span class="k">동물</span><span>${['deer', 'boar', 'wolf'].map((k) => `${G.Wild.KINDS[k].name} ${sim.animals.filter((a) => a.alive && a.kind === k).length}`).join(' · ')}</span>
         </div>
         <h4>부족 (${tribes.length})</h4>
         ${tribes.length ? tribes.map((t) => `<div class="tribe-row" data-act="tribe" data-id="${t.id}"><span class="dot" style="background:${t.color}"></span><span class="n">${esc(t.name)}</span>${t.wars.size ? '<span class="war">전쟁</span>' : ''}<span class="muted">${t.members.length}명</span></div>`).join('') : '<p class="muted">아직 부족이 없습니다. 사람들이 모여 지내다 보면 부족이 생깁니다.</p>'}

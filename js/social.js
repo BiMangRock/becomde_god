@@ -44,6 +44,18 @@
     terror: { t: '불덩이를 보았다', v: -25, d: 1.2 },
     discord: { t: '이유 없이 짜증이 난다', v: -18, d: 0.7 },
     fertile: { t: '다산의 축복', v: 10, d: 2 },
+    flashback: { t: '끔찍한 기억이 떠올랐다', v: -15, d: 0.3 },
+    recovered: { t: '마음의 병이 나았다', v: 18, d: 1 },
+    treated: { t: '치료를 받았다', v: 8, d: 0.4 },
+    healed: { t: '신의 치유', v: 22, d: 1 },
+    robbed: { t: '도둑맞았다', v: -15, d: 0.8 },
+    witnessMurder: { t: '살인을 목격했다', v: -30, d: 2 },
+    murderGuilt: { t: '살인의 죄책감', v: -30, d: 4 },
+    imprisoned: { t: '감옥에 갇혀 있다', v: -25, d: 0.2 },
+    freed: { t: '자유를 되찾았다', v: 20, d: 0.8 },
+    exiled: { t: '추방당했다', v: -30, d: 2 },
+    justice: { t: '정의가 이루어졌다', v: 12, d: 0.8 },
+    debtFree: { t: '빚을 갚았다', v: 6, d: 0.4 },
   });
 
   const S = (G.Social = {});
@@ -77,6 +89,7 @@
     v += Math.min(10, friends * 2);
     if (h.has('너그러운')) v += 3;
     if (h.has('탐욕스러운')) v -= 2;
+    v += G.Mind.moodPenalty(h);
     h.happy = clamp(v, 0, 100);
   };
 
@@ -97,7 +110,8 @@
   S.rel = (h, o) => {
     let r = h.rel.get(o.id);
     if (!r) {
-      r = { v: 0, love: 0, name: o.name };
+      r = { v: 0, love: 0, trust: 0, respect: 0, fear: 0, grudge: 0, jealousy: 0, owe: 0, lent: 0, name: o.name };
+      if (G.Mind.siblings(h, o)) { r.v = 50; r.trust = 40; r.sibling = true; }
       h.rel.set(o.id, r);
       if (h.rel.size > REL_CAP) S.prune(h);
       r = h.rel.get(o.id) || r;
@@ -143,17 +157,28 @@
     if (h.children.includes(id)) return '자녀';
     if (h.affair === id) return '비밀 연인';
     const o = sim.byId.get(id);
+    if (r.sibling) return '형제자매';
     if (r.spouse) return o ? '전 배우자' : '먼저 간 배우자';
+    if ((r.grudge || 0) >= 70) return '원수';
+    if (r.rival && (r.jealousy || 0) >= 40) return '연적';
     if (r.ex) return '옛 연인';
     if (!o && r.love >= 50) return '그리운 사람';
+    if (r.mentor) return '스승';
+    if (r.pupil) return '제자';
     if (r.love >= 50) {
       const back = o && o.rel.get(h.id);
       return back && back.love >= 50 ? '썸' : '짝사랑';
     }
+    if ((r.trust || 0) >= 70 && r.v >= 50) return '은인';
     if (r.v >= 75) return '절친';
+    if ((r.respect || 0) >= 75) return '존경하는 사람';
+    if ((r.fear || 0) >= 60) return '두려운 사람';
+    if ((r.jealousy || 0) >= 50) return '라이벌';
     if (r.v >= 40) return '친구';
+    if (r.owe > 0) return '빚진 사람';
+    if (r.lent > 0) return '돈 빌려준 사람';
     if (r.v <= -60) return '원수';
-    if (r.v <= -30) return '앙숙';
+    if (r.v <= -30 || (r.grudge || 0) >= 40) return '앙숙';
     return '아는 사이';
   };
 
@@ -180,11 +205,15 @@
       if (!h.alive) continue;
       S.updateMood(sim, h);
       S.loveDrift(sim, h);
-      if (h.age < 3 || h.state === 'fight' || h.state === 'pray') continue;
+      G.Mind.tick(sim, h);
+      G.Crime.tick(sim, h);
+      if (!h.alive || h.age < 3 || h.state === 'fight' || h.state === 'pray') continue;
+      // 불안증·우울증이 있으면 사람을 덜 만난다
+      if (h.mind && (h.mind.c === '불안증' || h.mind.c === '우울증') && chance(0.4)) continue;
       S.ripen(sim, h);
       if (!chance(0.6)) continue;
       let pool = [];
-      sim.near(h.x, h.y, 4, (o) => { if (o !== h && o.age >= 3 && o.state !== 'fight') pool.push(o); });
+      sim.near(h.x, h.y, 4, (o) => { if (o !== h && o.age >= 3 && o.state !== 'fight' && !!o.jail === !!h.jail) pool.push(o); });
       if (!pool.length) {
         if (h.adult && chance(0.05) && ![...h.rel.values()].some((r) => r.v >= 40)) S.addMood(sim, h, 'lonely');
         continue;
@@ -201,13 +230,23 @@
   S.interact = (sim, h, o) => {
     const r = S.rel(h, o), back = S.rel(o, h);
     const comp = S.compat(h, o);
-    const angry = h.happy < 30 || S.hasMood(h, 'discord') || S.hasMood(h, 'jealous');
+    const angry = h.happy < 30 || S.hasMood(h, 'discord') || S.hasMood(h, 'jealous') || (r.grudge || 0) >= 50;
+    h.social = 0; o.social = 0;
+    const meet = (kind) => { G.Mind.onMeet(sim, h, o, kind); G.Mind.onMeet(sim, o, h, kind); };
 
     // 아이들끼리 놀기
     if (h.age < 14 && o.age < 14) {
       S.bump(sim, h, o, rand(3, 7)); S.bump(sim, o, h, rand(3, 7));
       S.addMood(sim, h, 'played'); S.addMood(sim, o, 'played');
       h.say('♪', 60); o.say('♪', 60);
+      meet('chat');
+      return;
+    }
+    // 형제자매
+    if (r.sibling && chance(0.5)) {
+      S.bump(sim, h, o, 3); S.bump(sim, o, h, 3);
+      S.addMood(sim, h, 'hug'); S.addMood(sim, o, 'hug');
+      meet('chat');
       return;
     }
     // 가족끼리
@@ -215,18 +254,26 @@
     if (parentChild) {
       S.bump(sim, h, o, 4); S.bump(sim, o, h, 4);
       S.addMood(sim, h, 'hug'); S.addMood(sim, o, 'hug');
+      meet('chat');
       return;
     }
 
     // 다툼
-    let pArgue = 0.07 + (r.v < 0 ? 0.15 : 0) + (angry ? 0.2 : 0) - comp * 0.02;
+    let pArgue = 0.05 + (r.v < 0 ? 0.12 : 0) + (angry ? 0.15 : 0) - comp * 0.02 + ((r.jealousy || 0) > 50 ? 0.1 : 0);
     if (h.has('겁많은')) pArgue *= 0.6;
+    if (h.has('충동적인')) pArgue *= 1.5;
+    if (h.has('침착한')) pArgue *= 0.6;
+    if (h.mind && h.mind.c === '편집증') pArgue += 0.15;
+    if ((r.fear || 0) > 60) pArgue *= 0.4; // 무서운 사람에게는 대들지 않는다
     if (chance(clamp(pArgue, 0.01, 0.6))) return S.argue(sim, h, o, r);
 
     // 슬픈 친구 위로
-    if (o.happy < 35 && r.v > 30 && h.happy > 40) {
+    const comfortTh = h.has('다정한') ? 15 : h.has('냉정한') ? 60 : 30;
+    if ((o.happy < 35 || (o.mind && o.mind.sev > 30)) && r.v > comfortTh && h.happy > 40) {
       S.bump(sim, h, o, 6); S.bump(sim, o, h, 10);
       S.addMood(sim, o, 'comforted');
+      G.Mind.support(sim, o, h.has('다정한') ? 12 : 7);
+      meet('comfort');
       h.say('…', 60);
       if (sim.year - (o.lastComfortLog || -99) > 3) { o.lastComfortLog = sim.year; o.log(sim, `슬퍼할 때 ${josa(h.name, '이/가')} 위로해 주었다`); }
       return;
@@ -238,6 +285,7 @@
       h.gold -= g; o.gold += g;
       S.bump(sim, o, h, 10, r.love >= 40 ? 6 : 0);
       S.addMood(sim, o, 'gift');
+      meet('gift');
       if (r.love >= 40 && sim.year - (h.lastGiftLog || -99) > 2) { h.lastGiftLog = sim.year; h.log(sim, `${o.name}에게 선물을 주었다`); }
       h.say('♥', 50);
       return;
@@ -248,6 +296,7 @@
     S.bump(sim, h, o, dv); S.bump(sim, o, h, dv * 0.8);
     S.addMood(sim, h, 'chat'); S.addMood(sim, o, 'chat');
     h.say('♪', 50);
+    meet('chat');
 
     // 끌림
     // 첫눈에 반하기
@@ -256,6 +305,8 @@
     } else if (canRomance(sim, h, o) && r.v > 15) {
       let dl = rand(3, 8) * attraction(h, o) * (comp > 0 ? 1.5 : 1);
       if (h.happy > 65) dl *= 1.3;
+      if (h.has('다정한')) dl *= 1.3;
+      if ((r.trust || 0) < -30) dl *= 0.3;
       if (attached(h) && !(h.lover === o || h.partner === o)) dl *= (S.partnerLove(h) < 40 ? 0.6 : 0.1);
       S.bump(sim, h, o, 0, dl);
     }
@@ -280,11 +331,13 @@
     S.bump(sim, h, o, -rand(8, 15)); S.bump(sim, o, h, -rand(6, 12));
     if (h.lover === o || h.partner === o) { S.bump(sim, h, o, 0, -rand(4, 9)); S.bump(sim, o, h, 0, -rand(3, 7)); }
     S.addMood(sim, h, 'argued'); S.addMood(sim, o, 'argued');
+    G.Mind.onMeet(sim, h, o, 'argue'); G.Mind.onMeet(sim, o, h, 'argue');
     h.say('#', 70); o.say('#', 70);
-    const hot = h.has('용감한') || S.hasMood(h, 'jealous') || S.hasMood(h, 'discord') || h.happy < 25;
-    if (hot && r.v < -40 && chance(0.3)) {
+    const hot = h.has('용감한') || h.has('충동적인') || S.hasMood(h, 'jealous') || S.hasMood(h, 'discord') || h.happy < 25 || (r.grudge || 0) > 40;
+    if (hot && r.v < -30 && chance(0.3)) {
       h.health -= rand(5, 12); o.health -= rand(5, 12);
       S.addMood(sim, h, 'brawl'); S.addMood(sim, o, 'brawl');
+      G.Mind.onMeet(sim, h, o, 'brawl'); G.Mind.onMeet(sim, o, h, 'brawl');
       h.log(sim, `${josa(o.name, '과/와')} 주먹다짐을 했다`);
       o.log(sim, `${josa(h.name, '과/와')} 주먹다짐을 했다`);
       h.say('!', 60); o.say('!', 60);
@@ -303,6 +356,7 @@
     } else {
       S.bump(sim, h, o, -5, -20);
       S.addMood(sim, h, 'rejected');
+      if (h.has('냉정한') || h.has('질투심 많은') || h.has('충동적인')) G.Mind.adj(sim, h, o, { grudge: 15 });
       h.log(sim, `${o.name}에게 고백했다가 거절당했다`);
       h.say('…', 120);
     }
@@ -310,6 +364,18 @@
 
   S.makeLovers = (sim, a, b) => {
     a.lover = b; b.lover = a;
+    // 두 사람을 짝사랑하던 사람들의 질투
+    for (const [x, y] of [[a, b], [b, a]]) {
+      for (const p of sim.humans) {
+        if (!p.alive || p === x || p === y) continue;
+        const pr = p.rel.get(x.id);
+        if (!pr || pr.love < 50) continue;
+        G.Mind.adj(sim, p, y, { jealousy: 35, grudge: 18 });
+        S.rel(p, y).rival = true;
+        S.addMood(sim, p, 'jealous');
+        p.log(sim, `${josa(x.name, '이/가')} ${josa(y.name, '과/와')} 사귀게 되어 질투에 휩싸였다`);
+      }
+    }
     a.loverSince = sim.year; b.loverSince = sim.year;
     S.bump(sim, a, b, 10, 15); S.bump(sim, b, a, 10, 15);
     S.addMood(sim, a, 'lover'); S.addMood(sim, b, 'lover');
@@ -364,8 +430,11 @@
           if (spouse && G.dist(spouse.x, spouse.y, h.x, h.y) < 5 && chance(0.12)) {
             S.addMood(sim, spouse, 'betrayed'); S.addMood(sim, spouse, 'jealous');
             S.bump(sim, spouse, h, -40, -45); S.bump(sim, spouse, other, -50);
+            G.Mind.adj(sim, spouse, h, { trust: -60, grudge: 45 });
+            G.Mind.adj(sim, spouse, other, { grudge: 65, jealousy: 70 });
+            S.rel(spouse, other).rival = true;
             spouse.log(sim, `${josa(h.name, '이/가')} ${josa(other.name, '과/와')} 몰래 만나는 것을 알게 되었다`);
-            h.log(sim, `${other.name}와(과)의 관계를 ${spouse.name}에게 들켰다`);
+            h.log(sim, `${josa(other.name, "과/와")}의 관계를 ${spouse.name}에게 들켰다`);
             spouse.say('#', 150);
             if (sim.year - (sim.lastAffairEvent || -99) > 2) {
               sim.lastAffairEvent = sim.year;
@@ -466,7 +535,7 @@
     // 드물게 출산이 위험하다 (사제나 신의 축복이 있으면 안전)
     let risk = 0.012;
     if (S.hasMood(mom, 'blessed') || S.hasMood(mom, 'fertile')) risk = 0;
-    sim.near(mom.x, mom.y, 4, (o) => { if (o.job === J.PRIEST) risk *= 0.3; });
+    sim.near(mom.x, mom.y, 4, (o) => { if (o.job === J.PRIEST) risk *= 0.3; if (o.job === J.HEALER) risk *= 0.15; });
     if (chance(risk)) sim.kill(mom, '난산');
     return c;
   };
@@ -476,6 +545,7 @@
     t.stock.food -= Math.floor(t.members.length * 0.5);
     t.lastFestival = sim.year;
     for (const m of t.members) {
+      if (m.jail) continue;
       S.addMood(sim, m, 'festival');
       if (m.state !== 'fight') m.goTo(sim, t.cx + rand(-2.5, 2.5), t.cy + rand(-2.5, 2.5), { kind: 'party' });
     }
@@ -489,7 +559,7 @@
       }
     }
     for (const m of t.members) if (m.adult && chance(0.3)) m.log(sim, `${t.name}의 축제에서 춤을 추었다`);
-    t.log(sim, `${josa(t.name, '이/가')} 모닥불 축제를 열었습니다`);
+    t.log(sim, `${josa(t.name, '이/가')} 모닥불 축제를 열었습니다`, sim.humans.length < 40);
   };
 
   // ---------------- 데이트 ----------------
@@ -508,7 +578,7 @@
   S.startDate = (sim, h) => {
     const o = (h.partner && h.partner.alive && h.partner) || (h.lover && h.lover.alive && h.lover)
       || (h.affair && sim.byId.get(h.affair));
-    if (!o || !o.alive || o.hunger > 50 || o.state === 'fight' || o.state === 'gather' || o.state === 'pray') return false;
+    if (!o || !o.alive || o.jail || o.hunger > 50 || o.state === 'fight' || o.state === 'gather' || o.state === 'pray' || o.state === 'busy') return false;
     if (G.dist(h.x, h.y, o.x, o.y) > 20) return false;
     const spot = S.dateSpot(sim, h);
     if (!h.goTo(sim, spot.x, spot.y, { kind: 'date', with: o.id, place: spot.place })) return false;
