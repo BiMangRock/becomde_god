@@ -81,6 +81,8 @@
       this.view = { x0, y0, x1, y1 };
 
       if (s >= 12) this.drawDetails(x0, y0, x1, y1);
+      if (s >= 12) this.drawLand(x0, y0, x1, y1);
+      this.drawGoldPiles();
       if (sim.drought) { ctx.fillStyle = 'rgba(220,150,60,0.10)'; ctx.fillRect(0, 0, this.vw, this.vh); }
 
       this.drawBlood();
@@ -103,6 +105,63 @@
       this.fx.drawFlash(ctx);
       this.drawBrush();
       this.drawCarried();
+    }
+
+    // 땅마다 다른 먹을거리(숲의 열매), 몽환초, 처음 보는 식물, 깊은 눈 (land.js)
+    drawLand(x0, y0, x1, y1) {
+      const ctx = this.ctx, w = this.sim.world, s = this.cam.s;
+      if (!w.spd) return;
+      const BERRY = ['#d8304a', '#4a5ad8', '#7a2a8a', '#e07a2a'];
+      for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
+        const i = y * w.w + x, t = w.type[i];
+        const [sx, sy] = this.toScreen(x, y);
+        const hsh = ((x * 73856093) ^ (y * 19349663)) >>> 0;
+        // 숲의 열매: 많을수록 여러 알
+        if (t === T.FOREST && w.food[i] >= 1.5 && s >= 18) {
+          const n = Math.min(4, Math.floor(w.food[i] / 1.2));
+          ctx.fillStyle = BERRY[hsh % 4];
+          for (let k = 0; k < n; k++) {
+            const bx = sx + (((hsh >> (k * 3)) & 7) / 7 * 0.7 + 0.15) * s, by = sy + (((hsh >> (k * 3 + 11)) & 7) / 7 * 0.35 + 0.6) * s;
+            ctx.beginPath(); ctx.arc(bx, by, Math.max(1, s * 0.05), 0, 7); ctx.fill();
+          }
+        }
+        // 몽환초: 보랏빛 꽃
+        if (w.dream[i] >= 1 && s >= 14) {
+          const fx = sx + s * (0.3 + (hsh & 3) * 0.12), fy = sy + s * 0.78;
+          ctx.strokeStyle = '#4f7a3a'; ctx.lineWidth = Math.max(1, s * 0.03);
+          ctx.beginPath(); ctx.moveTo(fx, fy); ctx.lineTo(fx, fy - s * 0.22); ctx.stroke();
+          ctx.fillStyle = '#b06cff';
+          for (let k = 0; k < 5; k++) { const a = k * 1.256 + this.frame * 0.01; ctx.beginPath(); ctx.arc(fx + Math.cos(a) * s * 0.06, fy - s * 0.24 + Math.sin(a) * s * 0.06, Math.max(1, s * 0.045), 0, 7); ctx.fill(); }
+          ctx.fillStyle = '#ffe9a8'; ctx.beginPath(); ctx.arc(fx, fy - s * 0.24, Math.max(0.8, s * 0.03), 0, 7); ctx.fill();
+        }
+        // 처음 보는 식물: 은은하게 빛난다
+        if (w.rare.has(i) && s >= 14) {
+          const px = sx + s * 0.6, py = sy + s * 0.5, pulse = 0.5 + 0.5 * Math.sin(this.frame * 0.06 + x);
+          ctx.fillStyle = `rgba(150,255,220,${0.15 + 0.2 * pulse})`;
+          ctx.beginPath(); ctx.arc(px, py, s * 0.28, 0, 7); ctx.fill();
+          ctx.fillStyle = '#9be3c8';
+          ctx.beginPath(); ctx.moveTo(px, py - s * 0.14); ctx.lineTo(px + s * 0.05, py); ctx.lineTo(px, py + s * 0.14); ctx.lineTo(px - s * 0.05, py); ctx.fill();
+        }
+        // 깊은 눈: 눈더미
+        if (w.snow[i] > 1.2 && s >= 18 && (hsh & 3) === 2) {
+          ctx.fillStyle = 'rgba(255,255,255,0.85)';
+          const hh = Math.min(0.35, w.snow[i] * 0.08) * s;
+          ctx.beginPath(); ctx.ellipse(sx + s * 0.5, sy + s * 0.8, s * 0.32, hh, 0, Math.PI, 0); ctx.fill();
+        }
+      }
+    }
+
+    drawGoldPiles() {
+      const piles = this.sim.goldPiles;
+      if (!piles || !piles.length) return;
+      const ctx = this.ctx, s = this.cam.s;
+      for (const p of piles) {
+        const [x, y] = this.toScreen(p.x, p.y);
+        const r = Math.max(2, s * 0.12);
+        ctx.fillStyle = '#ffd34d'; ctx.strokeStyle = '#a07a10'; ctx.lineWidth = 1;
+        for (let k = 0; k < 3; k++) { ctx.beginPath(); ctx.ellipse(x + (k - 1) * r * 0.9, y - k % 2 * r * 0.4, r, r * 0.6, 0, 0, 7); ctx.fill(); ctx.stroke(); }
+        if (this.frame % 40 < 8) { ctx.fillStyle = '#fff'; ctx.fillRect(x - 1, y - r * 1.4, 2, 2); }
+      }
     }
 
     // 나무, 바위, 열매
@@ -171,7 +230,7 @@
       for (const t of sim.tribes) {
         if (!t.alive) continue;
         const [cx, cy] = this.toScreen(t.cx, t.cy);
-        const R = (5 + Math.sqrt(t.members.length) * 1.4) * s;
+        const R = G.Realm.radius(t) * s;
         if (cx + R < 0 || cy + R < 0 || cx - R > this.vw || cy - R > this.vh) continue;
         // 영역
         ctx.strokeStyle = t.color; ctx.globalAlpha = t.wars.size ? 0.8 : 0.45;
@@ -615,7 +674,7 @@
         if (!t.alive) continue;
         const [cx, cy] = this.toScreen(t.cx, t.cy);
         if (cx < -100 || cy < -50 || cx > this.vw + 100 || cy > this.vh + 50) continue;
-        const R = (5 + Math.sqrt(t.members.length) * 1.4) * s;
+        const R = G.Realm.radius(t) * s;
         const ly = cy - R - 6;
         ctx.font = 'bold 13px sans-serif';
         const label = `${t.name} · ${t.members.length}명${t.wars.size ? ' · 전쟁 중' : ''}`;
@@ -648,6 +707,22 @@
               ctx.moveTo(dx, dy); ctx.lineTo(dx - 2, dy + 7);
             }
             ctx.stroke();
+            break;
+          }
+          case 'gold': {
+            // 하늘에서 금화가 쏟아진다
+            const R = e.r * s;
+            ctx.fillStyle = `rgba(255,215,80,${0.15 * (1 - p)})`;
+            ctx.beginPath(); ctx.arc(x, y, R, 0, Math.PI * 2); ctx.fill();
+            for (let k = 0; k < 40; k++) {
+              const a = (k * 2.399) % (Math.PI * 2), rr = R * Math.sqrt((k * 0.618) % 1);
+              const fall = ((e.age * 3 + k * 17) % 60) / 60;
+              const cx = x + Math.cos(a) * rr, cy = y + Math.sin(a) * rr - (1 - fall) * 60;
+              ctx.globalAlpha = Math.max(0, 1 - p) * (0.4 + fall * 0.6);
+              ctx.fillStyle = '#ffd34d';
+              ctx.beginPath(); ctx.ellipse(cx, cy, 3, 3 * Math.abs(Math.cos(e.age * 0.2 + k)) + 0.6, 0, 0, 7); ctx.fill();
+            }
+            ctx.globalAlpha = 1;
             break;
           }
           case 'bless': {

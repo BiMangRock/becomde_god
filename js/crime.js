@@ -246,6 +246,7 @@
   C.investigate = (sim) => {
     for (let i = sim.unsolved.length - 1; i >= 0; i--) {
       const cs = sim.unsolved[i];
+      if (!cs) continue; // 연쇄살인 사건이 풀리면 같은 범인의 사건이 한꺼번에 지워진다
       const k = sim.byId.get(cs.killer);
       // 공소시효: 8년이 지나면 사건은 묻힌다 (일가족 살인과 연쇄살인은 더 오래 쫓는다)
       const limit = cs.type === '일가족 살인' || cs.serial ? 15 : 8;

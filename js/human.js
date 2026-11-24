@@ -104,7 +104,7 @@
       if (this.health <= 0) return sim.kill(this, this.hunger >= 100 ? '굶주림' : '상처');
       if (this.health > this.maxHp) this.health = this.maxHp;
       // 체력이 좋으면 오래 산다
-      const oldAt = 50 + this.body * 0.12;
+      const oldAt = 50 + this.body * 0.12 + (this.genes && G.Genes.has(this, 'long') ? 12 : 0);
       if (this.age > oldAt && chance(Math.pow((this.age - oldAt) / 28, 2) / TPY * dt)) return sim.kill(this, '노환');
 
       const base = this.has('신앙심 깊은') ? 55 : this.has('의심 많은') ? 15 : 30;
@@ -149,11 +149,13 @@
         case 'idle': this.decide(sim); break;
         case 'goto':
           if (this.arrived()) this.onArrive(sim);
-          else if (this.hunger > 75 && !this.ration && this.task && this.task.kind !== 'eat' && !(this.task.kind === 'gather' && this.task.res === 'food')) {
+          else if (this.hunger > 75 && !this.ration && this.task && this.task.kind !== 'eat' && !this.task.flee && !(this.task.kind === 'gather' && this.task.res === 'food')) {
             // 가는 길에 너무 배고프면 계획을 바꾼다
             this.state = 'idle'; this.task = null;
           }
           else if (this.stuck > 150) { this.stuck = 0; this.state = 'idle'; this.task = null; }
+          // 길이 생각보다 너무 오래 걸리면 (눈이 쌓였거나 숲이 우거져서) 포기하고 되돌아온다 (land.js)
+          else if (++this.gotoT > this.eta && G.Land.giveUp(this, sim)) break;
           break;
         case 'gather': this.doGather(sim); break;
         case 'pray':
@@ -349,7 +351,10 @@
       }
       const path = w.findPath(this.x, this.y, x, y);
       if (!path) { this.state = 'rest'; this.timer = 20; return false; }
+      // 꼭 가야 하는 길이 아니면, 너무 험한 길은 처음부터 나서지 않는다 (land.js)
+      if (!G.Land.worthIt(this, sim, path, x, y, task)) { this.state = 'rest'; this.timer = 20; return false; }
       this.path = path; this.pathI = 0;
+      this.eta = G.Land.eta(this, path, task); this.gotoT = 0;
       this.tx = x; this.ty = y; this.task = task; this.state = 'goto'; this.stuck = 0;
       return true;
     }
@@ -588,6 +593,7 @@
       let dmg = rand(5, 11);
       if (this.has('용감한')) dmg *= 1.3;
       if (this.job === J.WARRIOR) dmg *= 1.3;
+      if (G.Genes.has(this, 'left')) dmg *= 1.1; // 왼손잡이는 상대가 익숙지 않다
       if (this.tribe) dmg *= 1 + this.tribe.toolBonus();
       dmg *= 0.7 + this.body * 0.006;
       if (this.age < 16 || this.age > 60) dmg *= 0.6;
@@ -622,13 +628,14 @@
       const d = Math.hypot(dx, dy);
       if (d < 0.05) return;
       const w = sim.world;
-      let sp = 0.05 * (G.TILE_SPEED[w.typeAt(this.x, this.y)] || 0.5);
+      let sp = 0.05 * w.speedXY(this.x, this.y);
       if (this.age < 10) sp *= 0.7;
       if (this.age > 60) sp *= 0.75;
       if (this.hunger >= 100) sp *= 0.8;
       if (this.job === J.MERCHANT) sp *= this.tribe && this.tribe.has('바퀴') ? 1.4 : 1.15;
       if (this.sick) sp *= 0.7;
       if (this.pregnant) sp *= 0.85;
+      if (this.task && this.task.flee) sp *= 1.8; // 불길에서 달아날 때는 덤불도 눈도 헤치고 뛴다
       sp = Math.min(sp, d);
       const ang = Math.atan2(dy, dx);
       const offs = [0, 0.6, -0.6, 1.2, -1.2, 1.8, -1.8, 2.4, -2.4];
@@ -642,6 +649,7 @@
           this.moving = true;
           if (Math.abs(Math.cos(a)) > 0.2) this.dir = Math.cos(a) >= 0 ? 1 : -1;
           if (off !== 0) this.stuck++; else if (this.stuck > 0) this.stuck--;
+          G.Land.step(sim, this);
           return;
         }
       }

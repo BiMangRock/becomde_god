@@ -23,6 +23,7 @@
     plague: { name: '역병', cost: 30, icon: '☣', desc: '옮는 병을 퍼뜨린다. 가까이 있는 사람에게 번진다' },
     beasts: { name: '짐승 무리', cost: 15, icon: '♞', desc: '사슴·멧돼지·산양 같은 짐승 무리를 불러온다' },
     judgment: { name: '신의 재판', cost: 30, icon: '⚖', desc: '한 사람을 누른다. 숨긴 죄가 있으면 번개로 드러내고, 누명을 썼으면 신탁으로 벗겨 준다' },
+    gold: { name: '금화 내리기', cost: 30, icon: '¤', desc: '하늘에서 금화가 쏟아진다. 주변 사람과 마을 금고가 부유해지지만, 줍지 못한 욕심쟁이는 샘을 낸다. 빈 땅에 내리면 지나가는 사람이 줍는다' },
     raise: { name: '땅 올리기', cost: 1, icon: '▲', desc: '누르고 있으면 땅이 솟는다' },
     lower: { name: '땅 내리기', cost: 1, icon: '▼', desc: '누르고 있으면 땅이 꺼진다' },
   };
@@ -542,6 +543,7 @@
         case 'fertility': G.Social.fertility(this, x, y); break;
         case 'heal': G.Mind.heal(this, x, y); break;
         case 'discord': G.Social.discord(this, x, y); break;
+        case 'gold': G.Land.goldRain(this, x, y); break;
         case 'meteor': {
           this.effects.push({ kind: 'meteor', x, y, age: 0, ttl: 45 });
           this.scheduled.push({ t: 45, fn: () => this.meteorImpact(x, y) });

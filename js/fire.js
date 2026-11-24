@@ -96,7 +96,7 @@
         if (h.health <= 0) { G.Crime3.fireDeath(sim, h); sim.kill(h, '화재'); return; }
         if (h.state !== 'jailed' && !(h.task && (h.task.kind === 'douse' || h.task.kind === 'fetch'))) {
           const a = Math.random() * Math.PI * 2;
-          h.goTo(sim, h.x + Math.cos(a) * 5, h.y + Math.sin(a) * 5, { kind: 'wander' });
+          h.goTo(sim, h.x + Math.cos(a) * 5, h.y + Math.sin(a) * 5, { kind: 'wander', back: true, flee: true });
         }
       });
       for (const a of sim.animals) {

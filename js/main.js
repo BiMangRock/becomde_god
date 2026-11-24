@@ -2,7 +2,7 @@
 (function () {
   const G = globalThis.G;
   const $ = (id) => document.getElementById(id);
-  const BRUSH = { inspect: 0, create: 0.6, rain: 7, bless: 5, lightning: 1.2, meteor: 4, cupid: 0, judgment: 0, carry: 0, revelation: 0, quake: 8, plague: 6, beasts: 2, heal: 5, fertility: 5, discord: 5, raise: 2.6, lower: 2.6 };
+  const BRUSH = { inspect: 0, create: 0.6, rain: 7, bless: 5, lightning: 1.2, meteor: 4, cupid: 0, judgment: 0, carry: 0, revelation: 0, quake: 8, plague: 6, beasts: 2, heal: 5, fertility: 5, discord: 5, gold: 4, raise: 2.6, lower: 2.6 };
 
   const app = {
     sim: null, renderer: null, ui: null,

@@ -116,10 +116,11 @@
         <h2>${esc(h.name)} <span class="muted">${h.gender === 'M' ? '남' : '여'} · ${Math.floor(h.age)}세</span></h2>
         <div>${t ? `<span class="chip link" data-act="tribe" data-id="${t.id}"><span class="dot" style="background:${t.color}"></span> ${esc(t.name)}</span>` : '<span class="chip">부족 없음</span>'}
           <span class="chip" data-tip="${esc(`${h.job}\n${G.JOB_DESC[h.job] || ''}`)}">${esc(h.job)}</span>${h.traits.map((x) => `<span class="chip" data-tip="${esc(this.traitTip(x))}">${esc(x)}</span>`).join('')}
-          ${h.jail ? '<span class="chip" style="color:#ffb070">수감 중</span>' : ''}${h.wanted ? '<span class="chip" style="color:#ff6b6b">수배 중</span>' : ''}${h.outlaw ? '<span class="chip" style="color:#bbb">무법자</span>' : ''}${h.branded ? '<span class="chip" style="color:#c99">낙인</span>' : ''}${h.labor ? '<span class="chip" style="color:#d9b26a">강제노역 중</span>' : ''}${h.enslaved ? '<span class="chip" style="color:#ff9a7a">노예</span>' : ''}${h.trek ? '<span class="chip" style="color:#9be36b">이주 중</span>' : ''}${h.hermit ? `<span class="chip" style="color:#d9b26a">${h.hermit.sage ? '현자' : '홀로 사는 사람'}</span>` : ''}${h.lost ? '<span class="chip" style="color:#c9a0ff">길 잃음</span>' : ''}${h.abducted ? '<span class="chip" style="color:#ff8a80">납치됨</span>' : ''}${h.cult ? `<span class="chip" style="color:#c9a0ff">교주 (신자 ${h.cult.followers.length}명)</span>` : ''}</div>
+          ${h.jail ? '<span class="chip" style="color:#ffb070">수감 중</span>' : ''}${h.wanted ? '<span class="chip" style="color:#ff6b6b">수배 중</span>' : ''}${h.outlaw ? '<span class="chip" style="color:#bbb">무법자</span>' : ''}${h.branded ? '<span class="chip" style="color:#c99">낙인</span>' : ''}${h.labor ? '<span class="chip" style="color:#d9b26a">강제노역 중</span>' : ''}${h.enslaved ? '<span class="chip" style="color:#ff9a7a">노예</span>' : ''}${h.trek ? '<span class="chip" style="color:#9be36b">이주 중</span>' : ''}${h.hermit ? `<span class="chip" style="color:#d9b26a">${h.hermit.sage ? '현자' : '홀로 사는 사람'}</span>` : ''}${h.lost ? '<span class="chip" style="color:#c9a0ff">길 잃음</span>' : ''}${h.abducted ? '<span class="chip" style="color:#ff8a80">납치됨</span>' : ''}${h.cult ? `<span class="chip" style="color:#c9a0ff">교주 (신자 ${h.cult.followers.length}명)</span>` : ''}${(h.herbAddict || 0) > 50 ? '<span class="chip" style="color:#c9a0ff" data-tip="몽환초에 깊이 빠져 있다. 몸이 상하고 일이 느려지며 돈이 떨어지면 훔치기도 한다">몽환초 중독</span>' : ''}${h.herbDealer ? '<span class="chip" style="color:#b48cff" data-tip="몽환초를 캐서 몰래 판다. 금지된 부족에서는 들키면 재판을 받는다">몽환초 밀매꾼</span>' : ''}${h.twin ? '<span class="chip">쌍둥이</span>' : ''}</div>
         <p class="muted" style="margin:8px 0">지금 ${STATE_TEXT(h, sim)}${h.pregnant ? ` · <span style="color:#ff9ac1">임신 ${Math.max(1, Math.round((1 - h.pregnant / (G.CFG.TPY * 0.75)) * 9))}개월</span>` : ''}</p>
         ${this.bars(h)}
         ${this.personaBlock(h)}
+        ${this.geneBlock(h)}
         ${this.moodBlock(h)}
         ${this.mindBlock(h)}
         ${this.relBlock(h)}
@@ -127,7 +128,7 @@
         ${this.memoryBlock(h)}
         <h4>재산과 가족</h4>
         <div class="kv">
-          <span class="k">금화</span><span>${Math.floor(h.gold)}개${h.carry ? ` · ${G.RES_NAME[h.carry] || ''} ${h.carryAmt}개 운반 중` : ''}</span>
+          <span class="k">금화</span><span>${Math.floor(h.gold)}개${h.carry ? ` · ${G.RES_NAME[h.carry] || ''} ${h.carryAmt}개 운반 중` : ''}${h.herbStock > 0 ? ` · <span style="color:#c9a0ff">몽환초 ${h.herbStock}줌</span>` : ''}</span>
           <span class="k">부모</span><span>${h.parents.length ? h.parents.map((p) => this.personLink(p)).join(', ') : '<span class="muted">신이 빚었거나 알 수 없음</span>'}</span>
           <span class="k">배우자</span><span>${h.partner && h.partner.alive ? this.personLink(h.partner) : h.lover && h.lover.alive ? '<span class="muted">미혼 · 연인 </span>' + this.personLink(h.lover) : '<span class="muted">없음</span>'}</span>
           <span class="k">자녀</span><span>${children.length ? children.join(', ') : '<span class="muted">없음</span>'}</span>
@@ -219,9 +220,28 @@
           <span class="k">이상형</span><span>${prefTxt} · ${esc(h.wants)}을(를) 봄</span>
           <span class="k">지식</span><span>${h.knowledge.toFixed(1)}${h.discoveries ? ` · 발견 ${h.discoveries}개` : ''} · 학구열 ${Math.round(P.studyZeal(h) * 100)}</span>
           ${h.addiction > 10 ? `<span class="k">중독</span><span style="color:#ffb070">${Math.round(h.addiction)} ${h.addiction > 50 ? '(술과 도박에 빠져 있음)' : ''}</span>` : ''}
+          ${(h.herbAddict || 0) > 5 ? `<span class="k">몽환초</span><span style="color:#c9a0ff">중독 ${Math.round(h.herbAddict)} · ${h.herbUses || 0}번 피움${h.lastHerb !== undefined ? ` · 마지막 ${Math.max(0, this.app.sim.year - h.lastHerb).toFixed(1)}년 전` : ''}</span>` : ''}
         </div>
         <h4 style="margin-top:10px">성격 <span class="muted" style="font-weight:400">(마우스를 올리면 장단점과 효과)</span></h4>
         <div class="bars">${dims}</div>`;
+    }
+
+    geneBlock(h) {
+      const Gn = G.Genes;
+      if (!h.genes) return '';
+      const sim = this.app.sim;
+      const rare = Gn.traits(h).map((R) => `<span class="chip" data-tip="${esc(R.name + '\n' + R.desc)}">${esc(R.name)}</span>`).join('');
+      const carried = Gn.carried(h);
+      const liab = Gn.summary(h).map((x) => `<span class="chip" style="color:${x.col}" data-tip="${esc(`타고난 ${Gn.LIAB[x.k].name} 기질 ${Math.round(Gn.liab(h, x.k) * 100)} (평균 ${Math.round(Gn.LIAB[x.k].m * 100)})\n${Gn.LIAB[x.k].cond}에 걸릴 위험이 평균의 약 ${Gn.risk(h, x.k).toFixed(1)}배\n유전은 위험을 바꿀 뿐, 겪은 일과 곁의 사람에 따라 달라진다`)}">${esc(x.text)}</span>`).join('');
+      const fam = Gn.family(sim, h);
+      const iq = Gn.iq(h);
+      return `<h4>유전 <span class="muted" style="font-weight:400">(부모에게서 물려받음)</span></h4>
+        <div class="kv">
+          <span class="k">드러난 형질</span><span>${rare || '<span class="muted">특별한 것 없음</span>'}${carried.length ? ` <span class="muted">· 숨은 보인자: ${esc(carried.join(', '))}</span>` : ''}</span>
+          <span class="k">마음의 기질</span><span>${liab || '<span class="muted">평범함</span>'}</span>
+          <span class="k">집안 내력</span><span>${fam.length ? esc(fam.join(', ')) : '<span class="muted">알려진 마음의 병 없음</span>'}</span>
+          <span class="k">배우는 머리</span><span>${iq >= 1.25 ? '<span style="color:#ffe9a8">타고난 영재</span>' : iq >= 1.1 ? '빠른 편' : iq <= 0.8 ? '느린 편' : '보통'} (×${iq.toFixed(2)})</span>
+        </div>`;
     }
 
     mindBlock(h) {
@@ -308,7 +328,9 @@
         const v = Math.round(sim.getRel(t, o));
         const war = t.wars.has(o.id);
         const word = war ? '<span class="war">전쟁 중</span>' : v > 30 ? '우호' : v < -30 ? '적대' : '보통';
-        return `<tr><td><span class="link" data-act="tribe" data-id="${o.id}"><span class="dot" style="background:${o.color}"></span> ${esc(o.name)}</span></td><td>${word} (${v})</td></tr>`;
+        const pact = G.Realm.relText(sim, t, o);
+        const touch = G.dist(t.cx, t.cy, o.cx, o.cy) < G.Realm.radius(t) + G.Realm.radius(o);
+        return `<tr><td><span class="link" data-act="tribe" data-id="${o.id}"><span class="dot" style="background:${o.color}"></span> ${esc(o.name)}</span></td><td>${word} (${v})${pact ? ` · <span style="color:#9be3c8">${esc(pact)}</span>` : ''}${touch ? ' · <span class="muted">영역 맞닿음</span>' : ''}</td></tr>`;
       }).join('');
       const jobs = {};
       for (const m of t.members) jobs[m.job] = (jobs[m.job] || 0) + 1;
@@ -318,7 +340,13 @@
         <h2><span class="dot" style="background:${t.color};width:14px;height:14px"></span>${esc(t.name)}</h2>
         <p class="muted" style="margin:4px 0 8px">${t.founded}년에 세워짐${t.origin ? ` · ${esc(t.origin)}${t.origin === '움막' ? '에서 시작됨' : '에서 갈라져 나옴'}` : ''}${t.temple ? ' · 신전 있음' : ''}</p>
         <div class="kv">
-          <span class="k">족장</span><span>${t.chief ? this.personLink(t.chief) : '<span class="muted">없음</span>'}</span>
+          <span class="k">족장</span><span>${t.chief ? this.personLink(t.chief) : '<span class="muted">없음</span>'}${(() => {
+            if (!t.chief) return '';
+            const L = G.Realm.leader(sim, t);
+            const col = L.aggr >= 30 ? '#ff8a80' : L.aggr >= 10 ? '#ffb070' : L.aggr <= -8 ? '#7fe0a8' : '#cfd6e0';
+            return ` · <span style="color:${col}" data-tip="${esc(`${L.stance} (호전성 ${Math.round(L.aggr)})\n${G.Realm.STANCE_TEXT[L.stance]}\n능력 ${Math.round(L.ability)}: 지식·나이·체력·매력·전공으로 정해지며, 높을수록 힘의 차이를 정확히 보고 협정을 오래 맺는다`)}">${L.stance}</span> · 능력 ${Math.round(L.ability)}`;
+          })()}</span>
+          <span class="k">영역</span><span>반지름 ${G.Realm.radius(t).toFixed(1)}칸 · 힘 ${Math.round(G.Realm.strength(t))}${t.betrayals ? ` · <span style="color:#ff8a80">협정을 깬 적 ${t.betrayals}번</span>` : ''}</span>
           <span class="k">인구</span><span>${t.members.length}명 (최대 ${t.peak}명) · 집 ${t.houses.length}채</span>
           <span class="k">금고</span><span>금화 ${Math.floor(t.treasury)}개</span>
           <span class="k">출생/사망</span><span>${t.births} / ${t.deaths}</span>
@@ -371,6 +399,12 @@
           <span class="k">나무</span><span>${w.wood[i].toFixed(1)}</span>
           <span class="k">광석</span><span>${w.ore[i].toFixed(1)}</span>
           <span class="k">비옥함</span><span>${w.fert[i].toFixed(2)}</span>
+          ${w.spd ? `<span class="k">걷기</span><span>빠르기 ${w.speedAt(i).toFixed(2)} (초원 = 1)</span>
+          <span class="k">사람 손</span><span>${w.wild[i] > 0.05 ? `<span style="color:#9be3c8">야생 ${Math.round(w.wild[i] * 100)}%</span> · 오래 사람이 닿지 않음` : '사람이 다니는 땅'}</span>
+          ${w.snow[i] > 0.05 ? `<span class="k">쌓인 눈</span><span>${w.snow[i].toFixed(1)}${w.snow[i] > 2 ? ' · 허리까지 빠짐' : w.snow[i] > 1 ? ' · 무릎까지 빠짐' : ''}</span>` : ''}
+          ${w.dream[i] >= 1 ? '<span class="k">몽환초</span><span style="color:#c9a0ff">자라고 있음</span>' : ''}
+          ${w.rare.has(i) ? `<span class="k">식물</span><span style="color:#9be3c8">${(() => { const sp = this.app.sim.flora && this.app.sim.flora[w.rare.get(i)]; return sp && sp.found ? esc(sp.name) : '처음 보는 식물'; })()}</span>` : ''}
+          <span class="k">먹을거리</span><span class="muted">${esc((G.Land.FORAGE[w.type[i]] || { items: [] }).items.join(', ') || '없음')}</span>` : ''}
         </div>
         <div class="row-btns"><button data-act="close">닫기</button></div>`;
     }

@@ -183,20 +183,34 @@
 
     // 곧게 가도 손해가 없는가: 걸을 수 있고, 양 끝보다 느린 땅(언덕·산·숲)을 지나지 않는다
     lineCheap(x0, y0, x1, y1) {
-      const SP = G.TILE_SPEED;
-      const floor = Math.min(SP[this.typeAt(x0, y0)] || 1, SP[this.typeAt(x1, y1)] || 1) - 0.01;
+      const floor = Math.min(this.speedXY(x0, y0), this.speedXY(x1, y1)) - 0.01;
       const d = Math.hypot(x1 - x0, y1 - y0);
       const n = Math.ceil(d / 0.3);
       for (let k = 1; k <= n; k++) {
         const t = k / n, x = x0 + (x1 - x0) * t, y = y0 + (y1 - y0) * t;
-        if (!this.walkable(x, y) || SP[this.typeAt(x, y)] < floor) return false;
+        if (!this.walkable(x, y) || this.speedXY(x, y) < floor) return false;
       }
       return true;
     }
 
+    // 칸마다 걷는 빠르기. 기본은 땅 종류(TILE_SPEED)이고, land.js가 우거진 숲·쌓인 눈을 반영해 spd에 담는다
+    speedAt(i) {
+      const s = this.spd ? this.spd[i] : 0;
+      return s > 0 ? s : (G.TILE_SPEED[this.type[i]] || 0.5);
+    }
+    speedXY(x, y) {
+      const tx = Math.floor(x), ty = Math.floor(y);
+      if (!this.inb(tx, ty)) return 0.5;
+      return this.speedAt(ty * this.w + tx);
+    }
+
     // A* 길찾기. 경유점 배열을 돌려주고, 길이 없으면 null
     findPath(sx, sy, tx, ty, maxNodes = this.maxNodes) {
-      if (this.lineCheap(sx, sy, tx, ty)) return [{ x: tx, y: ty }];
+      if (this.lineCheap(sx, sy, tx, ty)) {
+        const p = [{ x: tx, y: ty }];
+        p.cost = Math.hypot(tx - sx, ty - sy) / Math.max(0.05, Math.min(this.speedXY(sx, sy), this.speedXY(tx, ty)));
+        return p;
+      }
       const W = this.w, H = this.h, n = W * H;
       if (!this._g) {
         this._g = new Float32Array(n); this._stamp = new Uint32Array(n); this._came = new Int32Array(n);
@@ -257,7 +271,7 @@
           const t = this.type[ni];
           if (t < 2 || closed[ni] === gen) continue;
           if (k >= 4 && (this.type[cy * W + nx] < 2 || this.type[ny * W + cx] < 2)) continue;
-          const step = (k >= 4 ? 1.414 : 1) / G.TILE_SPEED[t];
+          const step = (k >= 4 ? 1.414 : 1) / this.speedAt(ni);
           const ng = gS[cur] + step;
           if (stamp[ni] !== gen || ng < gS[ni]) {
             stamp[ni] = gen; gS[ni] = ng; came[ni] = cur;
@@ -279,6 +293,7 @@
         while (j > i && !this.lineCheap(ax, ay, pts[j].x, pts[j].y)) j--;
         out.push(pts[j]); ax = pts[j].x; ay = pts[j].y; i = j + 1;
       }
+      out.cost = gS[goal]; // 걸리는 길이 (땅이 느릴수록 크다)
       return out;
     }
 

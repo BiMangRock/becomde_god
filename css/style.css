@@ -22,8 +22,8 @@ button.ghost { background: transparent; }
 .speed { display: flex; gap: 4px; }
 .speed button { padding: 5px 9px; min-width: 40px; }
 
-#tools { position: fixed; top: 72px; left: 10px; width: 150px; border-radius: 12px; padding: 8px; display: flex; flex-direction: column; gap: 5px; z-index: 5; }
-#tools button { display: grid; grid-template-columns: 22px 1fr auto; align-items: center; gap: 4px; text-align: left; padding: 7px 8px; white-space: nowrap; }
+#tools { position: fixed; top: 72px; left: 10px; width: 150px; border-radius: 12px; padding: 8px; display: flex; flex-direction: column; gap: 4px; z-index: 5; max-height: calc(100vh - 72px - 196px); overflow-y: auto; }
+#tools button { display: grid; grid-template-columns: 22px 1fr auto; align-items: center; gap: 4px; text-align: left; padding: 6px 8px; white-space: nowrap; flex: none; }
 #tools .ic { font-size: 16px; text-align: center; }
 #tools .cost { font-size: 11px; color: #9aa6b8; }
 #tools button.on .cost { color: #5a4a10; }
@@ -72,7 +72,7 @@ table.mini td:last-child { text-align: right; color: #9aa6b8; }
 @media (max-width: 820px) {
   #top { height: auto; flex-wrap: wrap; padding: 8px; gap: 8px; }
   .brand { display: none; }
-  #tools { top: auto; bottom: 10px; left: 56px; right: 10px; width: auto; flex-direction: row; overflow-x: auto; padding: 6px; }
+  #tools { top: auto; bottom: 10px; left: 56px; right: 10px; width: auto; flex-direction: row; overflow-x: auto; padding: 6px; max-height: none; }
   #tools button { grid-template-columns: 18px auto; white-space: nowrap; }
   #tools .cost { display: none; }
   #side { top: auto; bottom: 66px; height: 34vh; width: auto; left: 10px; }

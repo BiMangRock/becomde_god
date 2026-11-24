@@ -204,7 +204,7 @@
     };
     if (hobby === '공부') {
       h.say('✎', 160);
-      let gain = 1 + P.studyZeal(h) * 2;
+      let gain = (1 + P.studyZeal(h) * 2) * G.Genes.iq(h); // 타고난 머리 (genes.js)
       if (h.mind && h.mind.c === '우울증') gain *= 1.5;
       if (h.tribe && h.tribe.has('문자')) gain *= 1.3;
       h.knowledge += gain;
@@ -241,13 +241,13 @@
       case '별보기': h.knowledge += 0.5; if (h.tribe) P.addLore(sim, h.tribe, 0.5, h); h.faith = Math.min(100, h.faith + 1); break;
       case '그림': h.knowledge += 0.2; if (h.tribe) h.tribe.art = (h.tribe.art || 0) + 1; break;
       case '술':
-        h.addiction = Math.min(100, h.addiction + 3 + h.p.addict / 15);
+        h.addiction = Math.min(100, h.addiction + (3 + h.p.addict / 15) * G.Genes.addMult(h));
         h.lastIndulge = sim.year;
         h.health -= 1.5;
         h.drunk = 3;
         break;
       case '도박': {
-        h.addiction = Math.min(100, h.addiction + 2 + h.p.addict / 20);
+        h.addiction = Math.min(100, h.addiction + (2 + h.p.addict / 20) * G.Genes.addMult(h));
         h.lastIndulge = sim.year;
         let opp = null;
         sim.near(h.x, h.y, 4, (o) => { if (!opp && o !== h && o.adult && o.gold >= 3 && !o.jail) opp = o; });
